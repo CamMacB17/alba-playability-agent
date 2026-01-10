@@ -526,19 +526,19 @@ Provide a concise paragraph that helps the golfer understand the conditions and 
     return explanation
 
 
-async def generate_explanation(assessment_data, force_llm=False) -> Tuple[str, str]:
+async def generate_explanation(assessment_data, force_llm=False, llm_effective_enabled=False) -> Tuple[str, str]:
     """
     Generate explanation paragraph. Uses LLM if enabled and available, otherwise uses deterministic version.
     
     assessment_data: dict containing all required fields for structured LLM input
-    force_llm: if True, indicates llm=1 query parameter was passed
+    force_llm: parsed llm query parameter (boolean)
+    llm_effective_enabled: computed effective LLM enabled status
     
     Returns: tuple of (explanation_text, summary_mode)
         summary_mode: "LLM", "Deterministic (LLM failed)", or "Deterministic"
     """
-    # LLM should run if (query llm == 1) OR (env LLM_SUMMARY == true)
-    # But LLM must never run if OPENAI_API_KEY is missing
-    use_llm = (force_llm or LLM_SUMMARY_ENABLED) and bool(openai_client)
+    # LLM should run if llm_effective_enabled is True
+    use_llm = llm_effective_enabled and bool(openai_client)
     
     if use_llm:
         # Try LLM, fall back silently to deterministic on any error
@@ -563,8 +563,9 @@ async def generate_explanation(assessment_data, force_llm=False) -> Tuple[str, s
         None  # tomorrow_forecast not needed for deterministic
     )
     
-    # Determine mode: if LLM was attempted but failed, show "Deterministic (LLM failed)"
-    if use_llm:
+    # Determine mode: if llm_effective_enabled was true but call failed, show "Deterministic (LLM failed)"
+    # Otherwise show "Deterministic"
+    if llm_effective_enabled:
         return deterministic_explanation, "Deterministic (LLM failed)"
     else:
         return deterministic_explanation, "Deterministic"
@@ -711,9 +712,13 @@ async def read_root():
     """
 
 
-async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False):
+async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None):
     """
     Shared function to calculate ratings and render assessment results.
+    
+    force_llm: parsed llm query parameter (boolean)
+    llm_effective_enabled: computed effective LLM enabled status
+    llm_raw: raw llm query parameter value for debugging
     """
     # Find the course to get coordinates and properties
     course_data = find_course_by_name(course)
@@ -786,10 +791,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "next_action": added_action
     }
     
-    explanation, summary_mode = await generate_explanation(assessment_data, force_llm=force_llm)
-    
-    # Check if LLM was effectively enabled (attempted)
-    llm_effective_enabled = (force_llm or LLM_SUMMARY_ENABLED) and bool(openai_client)
+    explanation, summary_mode = await generate_explanation(assessment_data, force_llm=force_llm, llm_effective_enabled=llm_effective_enabled)
     
     # Build HTML sections in exact order specified
     # 1. Weather rating
@@ -839,17 +841,23 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     """
     
     # 5. Explanation paragraph
-    # Determine mode badge text
-    if summary_mode == "LLM":
-        mode_badge_text = "Mode: LLM"
-    elif summary_mode == "Deterministic (LLM failed)":
-        mode_badge_text = "Mode: Deterministic (LLM failed)"
+    # Determine mode badge text based on llm_effective_enabled
+    if llm_effective_enabled:
+        if summary_mode == "LLM":
+            mode_badge_text = "Mode: LLM"
+        else:
+            mode_badge_text = "Mode: Deterministic (LLM failed)"
     else:
         mode_badge_text = "Mode: Deterministic"
+    
+    # Debug line (temporary) - show raw values
+    llm_raw_str = str(llm_raw) if llm_raw is not None else "None"
+    debug_line = f"llm_raw={llm_raw_str} llm_force={force_llm} effective={llm_effective_enabled}"
     
     explanation_html = f"""
         <div class="result-item">
             <div class="result-label">Summary: <span class="mode-badge">{mode_badge_text}</span></div>
+            <div class="summary-mode">{debug_line}</div>
             <div class="result-value">{explanation}</div>
         </div>
     """
@@ -986,13 +994,38 @@ async def assess_post(
     return RedirectResponse(url=f"/assess?{query_string}", status_code=303)
 
 
+def parse_llm_parameter(llm_value) -> bool:
+    """
+    Parse llm query parameter safely.
+    Treats 1, "1", "true", "True", "yes" as True. Everything else False.
+    """
+    if llm_value is None:
+        return False
+    
+    # Convert to string for comparison
+    llm_str = str(llm_value).strip().lower()
+    
+    # Check for true values
+    if llm_str in ["1", "true", "yes"]:
+        return True
+    
+    # Check if it's the integer 1
+    try:
+        if int(llm_value) == 1:
+            return True
+    except (ValueError, TypeError):
+        pass
+    
+    return False
+
+
 @app.get("/assess", response_class=HTMLResponse)
 async def assess_get(
     course: str = Query(None),
     handicap: int = Query(None),
     day: str = Query(None),
     time_of_day: str = Query(None),
-    llm: int = Query(0, description="Set to 1 to force LLM summary")
+    llm: str = Query(None, description="Set to 1, '1', 'true', 'True', or 'yes' to force LLM summary")
 ):
     """
     Handle GET request for assessment results.
@@ -1001,16 +1034,19 @@ async def assess_get(
     if not all([course, handicap is not None, day, time_of_day]):
         return RedirectResponse(url="/", status_code=303)
     
-    # Calculate llm_effective_enabled for logging
-    force_llm = llm == 1
-    llm_effective_enabled = (force_llm or LLM_SUMMARY_ENABLED) and bool(openai_client)
+    # Parse llm parameter safely
+    llm_raw = llm
+    llm_force = parse_llm_parameter(llm)
+    
+    # Compute llm_effective_enabled = has_openai_key and (llm_force or env_flag_true)
     has_openai_key = bool(OPENAI_API_KEY)
+    llm_effective_enabled = has_openai_key and (llm_force or LLM_SUMMARY_ENABLED)
     
     # Log assessment start with debug info
-    logger.info(f"ASSESS: llm_query={llm} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
+    logger.info(f"ASSESS: llm_query={llm_raw} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
     
     # Render results
-    return await render_assessment_results(course, handicap, day, time_of_day, force_llm)
+    return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw)
 
 
 if __name__ == "__main__":
