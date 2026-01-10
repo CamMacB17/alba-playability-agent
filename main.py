@@ -72,12 +72,43 @@ def load_courses():
         if os.path.exists(courses_file):
             with open(courses_file, "r", encoding="utf-8") as f:
                 courses = json.load(f)
-                # Validate that courses is a list with at least one course
-                if isinstance(courses, list) and len(courses) > 0:
-                    # Validate each course has required fields
-                    required_fields = ["name", "lat", "lon", "popularity_tier", "difficulty", "beginner_friendly", "price_tier"]
-                    if all(all(field in course for field in required_fields) for course in courses):
-                        return courses
+                # Validate that courses is a list
+                if isinstance(courses, list):
+                    # Validate and normalize each course
+                    valid_courses = []
+                    for course in courses:
+                        if not isinstance(course, dict):
+                            continue
+                        
+                        # Check required fields: name (non-empty string), lat and lon (numbers or convertible to floats)
+                        name = course.get("name")
+                        if not name or not isinstance(name, str) or not name.strip():
+                            continue
+                        
+                        lat = course.get("lat")
+                        lon = course.get("lon")
+                        
+                        # Try to convert lat/lon to float if they're strings
+                        try:
+                            lat_float = float(lat) if lat is not None else None
+                            lon_float = float(lon) if lon is not None else None
+                        except (ValueError, TypeError):
+                            lat_float = None
+                            lon_float = None
+                        
+                        # Both lat and lon must be present and valid numbers
+                        if lat_float is None or lon_float is None:
+                            continue
+                        
+                        # Normalize course: ensure area field exists (default to empty string)
+                        normalized_course = dict(course)
+                        if "area" not in normalized_course:
+                            normalized_course["area"] = ""
+                        
+                        valid_courses.append(normalized_course)
+                    
+                    if valid_courses:
+                        return valid_courses
     except (json.JSONDecodeError, IOError, OSError):
         pass
     
@@ -94,11 +125,11 @@ def find_course_by_name(course_name: str):
     return None
 
 
-def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, str]]:
+def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """
     Load courses from courses.json using absolute path.
     Tries BASE_DIR/courses.json first, then falls back to BASE_DIR/data/courses.json.
-    Returns list of course dicts with name and area, or empty list on error.
+    Returns list of course dicts with name, lat, lon (required) and area (optional, defaults to empty string).
     
     If debug_info dict is provided, populates debug fields for the file that was attempted.
     """
@@ -134,8 +165,11 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                         if len(courses) > 0:
                             first_item = courses[0]
                             if isinstance(first_item, dict):
-                                required_fields = ["name", "area"]
-                                if all(field in first_item for field in required_fields):
+                                # Check if it has name and (lat/lon or area)
+                                has_name = "name" in first_item
+                                has_coords = "lat" in first_item and "lon" in first_item
+                                has_area = "area" in first_item
+                                if has_name and (has_coords or has_area):
                                     debug_info["detected_format"] = "list_of_objects"
                                 else:
                                     debug_info["detected_format"] = "unknown"
@@ -146,10 +180,41 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                         else:
                             debug_info["detected_format"] = "unknown"
                     
-                    # Validate each course has required fields
-                    required_fields = ["name", "area"]
-                    if all(all(field in course for field in required_fields) for course in courses):
-                        return courses
+                    # Validate and normalize courses
+                    valid_courses = []
+                    for course in courses:
+                        if not isinstance(course, dict):
+                            continue
+                        
+                        # Check required fields: name (non-empty string), lat and lon (numbers or convertible to floats)
+                        name = course.get("name")
+                        if not name or not isinstance(name, str) or not name.strip():
+                            continue
+                        
+                        lat = course.get("lat")
+                        lon = course.get("lon")
+                        
+                        # Try to convert lat/lon to float if they're strings
+                        try:
+                            lat_float = float(lat) if lat is not None else None
+                            lon_float = float(lon) if lon is not None else None
+                        except (ValueError, TypeError):
+                            lat_float = None
+                            lon_float = None
+                        
+                        # Both lat and lon must be present and valid numbers
+                        if lat_float is None or lon_float is None:
+                            continue
+                        
+                        # Normalize course: ensure area field exists (default to empty string)
+                        normalized_course = dict(course)
+                        if "area" not in normalized_course:
+                            normalized_course["area"] = ""
+                        
+                        valid_courses.append(normalized_course)
+                    
+                    if valid_courses:
+                        return valid_courses
                 elif debug_info is not None:
                     debug_info["detected_format"] = "unknown"
         except (json.JSONDecodeError, IOError, OSError) as e:
