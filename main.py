@@ -8,7 +8,7 @@ from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
 import httpx
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 from uuid import uuid4
 
 # Set up logging
@@ -86,6 +86,29 @@ def find_course_by_name(course_name: str):
         if course["name"] == course_name:
             return course
     return None
+
+
+def load_courses_from_data() -> List[Dict[str, str]]:
+    """
+    Load courses from data/courses.json.
+    Returns list of course dicts with name and area, or empty list on error.
+    """
+    courses_file = os.path.join(os.path.dirname(__file__), "data", "courses.json")
+    
+    try:
+        if os.path.exists(courses_file):
+            with open(courses_file, "r", encoding="utf-8") as f:
+                courses = json.load(f)
+                # Validate that courses is a list
+                if isinstance(courses, list):
+                    # Validate each course has required fields
+                    required_fields = ["name", "area"]
+                    if all(all(field in course for field in required_fields) for course in courses):
+                        return courses
+    except (json.JSONDecodeError, IOError, OSError) as e:
+        logger.error(f"Failed to load courses from data/courses.json: {str(e)}", exc_info=True)
+    
+    return []
 
 
 async def fetch_weather_data(lat: float, lon: float, target_date: str):
@@ -855,6 +878,49 @@ async def debug_version() -> Dict[str, Any]:
     }
 
 
+@app.get("/courses")
+async def get_courses(q: str = Query(None, description="Search query for course names")):
+    """
+    Search courses by name.
+    Returns up to 8 matching courses, sorted by relevance.
+    """
+    # Validate query parameter
+    if not q or len(q.strip()) < 2:
+        return {"results": []}
+    
+    query = q.strip().lower()
+    
+    # Load courses from data/courses.json
+    courses = load_courses_from_data()
+    
+    if not courses:
+        return {"results": []}
+    
+    # Perform case-insensitive substring matching
+    matches = []
+    for course in courses:
+        course_name_lower = course["name"].lower()
+        if query in course_name_lower:
+            matches.append(course)
+    
+    # Sort results: starts with query first, then contains query
+    # Within each group, sort alphabetically by name
+    def sort_key(course):
+        name_lower = course["name"].lower()
+        starts_with = name_lower.startswith(query)
+        return (not starts_with, name_lower)  # False (0) comes before True (1), so starts_with=True sorts first
+    
+    matches.sort(key=sort_key)
+    
+    # Return only top 8 matches
+    top_matches = matches[:8]
+    
+    # Return only name and area fields
+    results = [{"name": course["name"], "area": course["area"]} for course in top_matches]
+    
+    return {"results": results}
+
+
 @app.get("/debug/openai")
 async def debug_openai() -> Dict[str, Any]:
     """
@@ -903,14 +969,6 @@ async def debug_openai() -> Dict[str, Any]:
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    courses = load_courses()
-    
-    # Generate course options HTML
-    course_options = '<option value="">Select a course</option>\n'
-    for course in courses:
-        course_name = course["name"].replace('"', '&quot;')
-        course_options += f'                    <option value="{course_name}">{course_name}</option>\n'
-    
     return f"""
     <!DOCTYPE html>
     <html>
@@ -938,17 +996,65 @@ async def read_root():
                 margin-bottom: 5px;
                 font-weight: bold;
             }}
-            select, input[type="number"] {{
+            select, input[type="number"], input[type="text"] {{
                 width: 100%;
                 padding: 8px;
                 font-size: 14px;
                 border: 1px solid #ccc;
                 border-radius: 4px;
+                box-sizing: border-box;
+            }}
+            .autocomplete-container {{
+                position: relative;
+            }}
+            .autocomplete-suggestions {{
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: white;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                max-height: 300px;
+                overflow-y: auto;
+                z-index: 1000;
+                margin-top: 2px;
+                display: none;
+            }}
+            .autocomplete-suggestions.show {{
+                display: block;
+            }}
+            .autocomplete-suggestion {{
+                padding: 10px;
+                cursor: pointer;
+                border-bottom: 1px solid #eee;
+            }}
+            .autocomplete-suggestion:last-child {{
+                border-bottom: none;
+            }}
+            .autocomplete-suggestion:hover,
+            .autocomplete-suggestion.highlighted {{
+                background-color: #f0f0f0;
+            }}
+            .autocomplete-no-matches {{
+                padding: 10px;
+                color: #666;
+                font-size: 12px;
             }}
             .help-text {{
                 font-size: 12px;
                 color: #666;
                 margin-top: 5px;
+            }}
+            .error-message {{
+                font-size: 12px;
+                color: #d32f2f;
+                margin-top: 5px;
+                display: none;
+            }}
+            .error-message.show {{
+                display: block;
             }}
             button {{
                 background-color: #007bff;
@@ -977,8 +1083,12 @@ async def read_root():
         <form method="post" action="/assess">
             <div class="form-group">
                 <label for="course">Course:</label>
-                <select id="course" name="course" required>
-{course_options}                </select>
+                <div class="autocomplete-container">
+                    <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
+                    <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
+                </div>
+                <div class="help-text">Try: Trent Park, Richmond Park, Dukes Meadows</div>
+                <div id="course-error" class="error-message">Please select a course</div>
             </div>
             
             <div class="form-group">
@@ -1008,6 +1118,152 @@ async def read_root():
             <button type="submit">Submit</button>
         </form>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
+        <script>
+            (function() {{
+                const courseInput = document.getElementById('course');
+                const suggestionsContainer = document.getElementById('autocomplete-suggestions');
+                let currentHighlight = -1;
+                let suggestions = [];
+                
+                function fetchSuggestions(query) {{
+                    if (query.length < 2) {{
+                        hideSuggestions();
+                        return;
+                    }}
+                    
+                    fetch('/courses?q=' + encodeURIComponent(query))
+                        .then(response => response.json())
+                        .then(data => {{
+                            suggestions = data.results || [];
+                            displaySuggestions(suggestions);
+                        }})
+                        .catch(error => {{
+                            console.error('Error fetching suggestions:', error);
+                            hideSuggestions();
+                        }});
+                }}
+                
+                function displaySuggestions(results) {{
+                    suggestionsContainer.innerHTML = '';
+                    currentHighlight = -1;
+                    
+                    if (results.length === 0) {{
+                        const noMatches = document.createElement('div');
+                        noMatches.className = 'autocomplete-no-matches';
+                        noMatches.textContent = 'No matches. Try a nearby area.';
+                        suggestionsContainer.appendChild(noMatches);
+                        suggestionsContainer.classList.add('show');
+                        return;
+                    }}
+                    
+                    results.forEach((course, index) => {{
+                        const suggestion = document.createElement('div');
+                        suggestion.className = 'autocomplete-suggestion';
+                        suggestion.textContent = `${{course.name}} (${{course.area}})`;
+                        suggestion.dataset.index = index;
+                        suggestion.dataset.name = course.name;
+                        
+                        suggestion.addEventListener('click', () => {{
+                            selectSuggestion(course.name);
+                        }});
+                        
+                        suggestionsContainer.appendChild(suggestion);
+                    }});
+                    
+                    suggestionsContainer.classList.add('show');
+                }}
+                
+                function hideSuggestions() {{
+                    suggestionsContainer.classList.remove('show');
+                    currentHighlight = -1;
+                }}
+                
+                function selectSuggestion(courseName) {{
+                    courseInput.value = courseName;
+                    hideSuggestions();
+                }}
+                
+                function highlightSuggestion(index) {{
+                    const items = suggestionsContainer.querySelectorAll('.autocomplete-suggestion');
+                    items.forEach((item, i) => {{
+                        if (i === index) {{
+                            item.classList.add('highlighted');
+                            item.scrollIntoView({{ block: 'nearest' }});
+                        }} else {{
+                            item.classList.remove('highlighted');
+                        }}
+                    }});
+                }}
+                
+                courseInput.addEventListener('input', (e) => {{
+                    const query = e.target.value.trim();
+                    fetchSuggestions(query);
+                }});
+                
+                courseInput.addEventListener('keydown', (e) => {{
+                    const items = suggestionsContainer.querySelectorAll('.autocomplete-suggestion');
+                    
+                    if (!suggestionsContainer.classList.contains('show') || items.length === 0) {{
+                        return;
+                    }}
+                    
+                    if (e.key === 'ArrowDown') {{
+                        e.preventDefault();
+                        currentHighlight = Math.min(currentHighlight + 1, items.length - 1);
+                        highlightSuggestion(currentHighlight);
+                    }} else if (e.key === 'ArrowUp') {{
+                        e.preventDefault();
+                        currentHighlight = Math.max(currentHighlight - 1, -1);
+                        if (currentHighlight >= 0) {{
+                            highlightSuggestion(currentHighlight);
+                        }} else {{
+                            items.forEach(item => item.classList.remove('highlighted'));
+                        }}
+                    }} else if (e.key === 'Enter') {{
+                        e.preventDefault();
+                        if (currentHighlight >= 0 && currentHighlight < suggestions.length) {{
+                            selectSuggestion(suggestions[currentHighlight].name);
+                        }}
+                    }} else if (e.key === 'Escape') {{
+                        hideSuggestions();
+                    }}
+                }});
+                
+                document.addEventListener('click', (e) => {{
+                    if (!courseInput.contains(e.target) && !suggestionsContainer.contains(e.target)) {{
+                        hideSuggestions();
+                    }}
+                }});
+                
+                // Form validation
+                const form = document.querySelector('form');
+                const courseError = document.getElementById('course-error');
+                
+                function validateCourse() {{
+                    const courseValue = courseInput.value.trim();
+                    if (courseValue === '') {{
+                        courseError.classList.add('show');
+                        return false;
+                    }} else {{
+                        courseError.classList.remove('show');
+                        return true;
+                    }}
+                }}
+                
+                form.addEventListener('submit', function(e) {{
+                    if (!validateCourse()) {{
+                        e.preventDefault();
+                        courseInput.focus();
+                    }}
+                }});
+                
+                courseInput.addEventListener('input', function() {{
+                    if (courseInput.value.trim() !== '') {{
+                        courseError.classList.remove('show');
+                    }}
+                }});
+            }})();
+        </script>
     </body>
     </html>
     """
@@ -1206,14 +1462,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     else:
         mode_badge_text = "Mode: Deterministic"
     
-    # Debug line (temporary) - show raw values
-    llm_raw_str = str(llm_raw) if llm_raw is not None else "None"
-    debug_line = f"llm_raw={llm_raw_str} llm_force={force_llm} effective={llm_effective_enabled}"
-    
     explanation_html = f"""
         <div class="result-item">
             <div class="result-label">Summary: <span class="mode-badge">{mode_badge_text}</span></div>
-            <div class="summary-mode">{debug_line}</div>
             <div class="result-value">{final_summary}</div>
         </div>
     """
@@ -1269,12 +1520,6 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 color: #666;
                 margin-top: 5px;
                 font-style: italic;
-            }}
-            .summary-mode {{
-                font-size: 11px;
-                color: #888;
-                font-style: italic;
-                margin-bottom: 8px;
             }}
             .mode-badge {{
                 display: inline-block;
@@ -1389,7 +1634,11 @@ async def assess_get(
     Handle GET request for assessment results.
     """
     # Validate required parameters
-    if not all([course, handicap is not None, day, time_of_day]):
+    # Check if course is missing or blank (after stripping whitespace)
+    if not course or not course.strip():
+        return RedirectResponse(url="/", status_code=303)
+    
+    if not all([handicap is not None, day, time_of_day]):
         return RedirectResponse(url="/", status_code=303)
     
     # Parse llm parameter safely

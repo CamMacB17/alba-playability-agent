@@ -1,0 +1,163 @@
+[
+  {
+    "name": "Royal Blackheath Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Shooters Hill Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Eltham Warren Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Sundridge Park Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Dulwich and Sydenham Hill Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Addington Court Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Purley Downs Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Croham Hurst Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "West Kent Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Chislehurst Golf Club",
+    "area": "SE"
+  },
+  {
+    "name": "Richmond Park Golf Course",
+    "area": "SW"
+  },
+  {
+    "name": "Royal Mid-Surrey Golf Club",
+    "area": "SW"
+  },
+  {
+    "name": "Dukes Meadows Golf Course",
+    "area": "SW"
+  },
+  {
+    "name": "Fulwell Golf Course",
+    "area": "SW"
+  },
+  {
+    "name": "Hampton Court Palace Golf Club",
+    "area": "SW"
+  },
+  {
+    "name": "Strawberry Hill Golf Club",
+    "area": "SW"
+  },
+  {
+    "name": "Coombe Hill Golf Course",
+    "area": "SW"
+  },
+  {
+    "name": "Coombe Wood Golf Course",
+    "area": "SW"
+  },
+  {
+    "name": "Malden Golf Club",
+    "area": "SW"
+  },
+  {
+    "name": "Mitcham Golf Club",
+    "area": "SW"
+  },
+  {
+    "name": "Pinner Hill Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Stanmore Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Harrow School Golf Course",
+    "area": "NW"
+  },
+  {
+    "name": "Grims Dyke Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Northwood Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Hendon Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Mill Hill Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Muswell Hill Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "Sudbury Golf Club",
+    "area": "NW"
+  },
+  {
+    "name": "West Middlesex Golf Course",
+    "area": "NW"
+  },
+  {
+    "name": "Trent Park Golf Club",
+    "area": "NE"
+  },
+  {
+    "name": "Bush Hill Park Golf Club",
+    "area": "NE"
+  },
+  {
+    "name": "Lee Valley Golf Course",
+    "area": "NE"
+  },
+  {
+    "name": "Enfield Golf Club",
+    "area": "NE"
+  },
+  {
+    "name": "Ilford Golf Club",
+    "area": "NE"
+  },
+  {
+    "name": "Wanstead Golf Club",
+    "area": "NE"
+  },
+  {
+    "name": "Woodford Golf Course",
+    "area": "NE"
+  },
+  {
+    "name": "The Warren Park Golf Centre",
+    "area": "NE"
+  },
+  {
+    "name": "Romford Golf Club",
+    "area": "NE"
+  },
+  {
+    "name": "Upminster Golf Club",
+    "area": "NE"
+  }
+]
+
