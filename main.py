@@ -305,44 +305,40 @@ async def fetch_tomorrow_weather(lat: float, lon: float):
     return await fetch_weather_data(lat, lon, tomorrow)
 
 
+def is_weather_favorable(weather_rating: str) -> bool:
+    """
+    Determine if weather rating is favorable for golf.
+    Returns True for "Dry", False for "Rainy", "Windy", "Cold", "Poor conditions"
+    """
+    return weather_rating == "Dry"
+
+
 def calculate_weather_rating(weather_data):
     """
-    Calculate weather rating: Good / Mixed / Poor
+    Calculate weather rating using condition-based states: Dry, Rainy, Windy, Cold, Poor conditions
     Based on temperature, wind speed, and precipitation.
+    Returns the most impactful condition affecting play.
     """
     if not weather_data:
-        return "Mixed"
+        return "Dry"
     
     temp_avg = (weather_data["temperature_min"] + weather_data["temperature_max"]) / 2
     wind_speed = weather_data["wind_speed"]
     precipitation = weather_data["precipitation"]
     
-    score = 0
-    
-    # Temperature scoring (ideal: 15-25°C)
-    if 15 <= temp_avg <= 25:
-        score += 2
-    elif 10 <= temp_avg < 15 or 25 < temp_avg <= 30:
-        score += 1
-    
-    # Wind scoring (ideal: < 20 km/h)
-    if wind_speed < 20:
-        score += 2
-    elif wind_speed < 30:
-        score += 1
-    
-    # Precipitation scoring (ideal: < 1mm)
-    if precipitation < 1:
-        score += 2
-    elif precipitation < 5:
-        score += 1
-    
-    if score >= 5:
-        return "Good"
-    elif score >= 3:
-        return "Mixed"
+    # Determine primary condition - prioritize most impactful
+    # Rain is most disruptive, then wind, then cold
+    if precipitation >= 5:
+        return "Rainy"
+    elif wind_speed >= 30:
+        return "Windy"
+    elif temp_avg < 10:
+        return "Cold"
+    elif precipitation >= 1 or wind_speed >= 20 or temp_avg < 15:
+        # Multiple moderate issues = poor conditions
+        return "Poor conditions"
     else:
-        return "Poor"
+        return "Dry"
 
 
 def calculate_ground_condition(historical_rainfall):
@@ -538,9 +534,9 @@ def calculate_busyness_rating(month, weather_rating, day_of_week, time_of_day, p
         score += 1
     
     # Weather attractiveness
-    if weather_rating == "Good":
+    if is_weather_favorable(weather_rating):
         score += 2
-    elif weather_rating == "Mixed":
+    elif weather_rating == "Poor conditions":
         score += 1
     
     # Day of week (weekend = busier)
@@ -640,9 +636,10 @@ def determine_play_recommendation(weather_rating, ground_condition, busyness_rat
     
     score = 0
     
-    if weather_rating == "Good":
+    if is_weather_favorable(weather_rating):
         score += 2
-    elif weather_rating == "Mixed":
+    elif weather_rating == "Poor conditions":
+        # Poor conditions but not severe (Rainy/Windy/Cold)
         score += 1
     
     if ground_condition in ["Firm", "Mixed"]:
@@ -668,47 +665,35 @@ def generate_added_action(play_recommendation, time_of_day, busyness_rating, wea
     If Don't play: suggest tomorrow or quieter time and practical alternative
     """
     if play_recommendation == "Play":
-        # Suggest best time window
+        # Suggest best time window with explanation
         if busyness_rating in ["Quiet", "Moderate"]:
-            time_suggestion = "Any time window should work well"
+            time_suggestion = f"Course busyness is {busyness_rating.lower()}, so any time window should work well without long waits"
         elif time_of_day == "Morning":
-            time_suggestion = "Morning is ideal for avoiding crowds"
+            time_suggestion = f"Course busyness is {busyness_rating.lower()}, but morning typically offers quieter conditions than midday or afternoon"
         elif time_of_day == "Evening":
-            time_suggestion = "Evening offers quieter conditions"
+            time_suggestion = f"Course busyness is {busyness_rating.lower()}, but evening typically offers quieter conditions than midday or afternoon"
         else:
-            time_suggestion = "Consider Morning or Evening for quieter conditions"
+            time_suggestion = f"Course busyness is {busyness_rating.lower()}, so consider Morning or Evening for quieter conditions"
         
-        # Social vs PB attempt
-        if weather_rating == "Good" and handicap_suitability == "Well suited":
-            round_type = "This is a good day for a personal best attempt"
-        elif weather_rating == "Good":
-            round_type = "Good conditions for a social round"
+        # Social vs PB attempt with explanation
+        if is_weather_favorable(weather_rating) and handicap_suitability == "Well suited":
+            round_type = f"With {weather_rating.lower()} weather and course conditions well suited to your handicap, this is a good day for a personal best attempt"
+        elif is_weather_favorable(weather_rating):
+            round_type = f"{weather_rating.lower().capitalize()} weather provides predictable ball flight, making this good for a social round"
         else:
-            round_type = "Better suited for a social round"
+            round_type = f"{weather_rating.lower().capitalize()} weather affects ball flight, so this is better suited for a social round rather than a personal best attempt"
         
         return f"{time_suggestion}. {round_type}."
     else:
-        # Don't play suggestions
-        suggestions = []
-        
-        if weather_rating == "Poor":
-            suggestions.append("Consider playing tomorrow if weather improves")
-        
-        if busyness_rating in ["Busy", "Very busy"]:
-            suggestions.append("Try a quieter time of day like Early Morning or Evening")
-        
-        if handicap_suitability == "Not ideal today":
-            suggestions.append("Consider a course with easier difficulty or wait for quieter conditions")
-        
-        if not suggestions:
-            suggestions.append("Consider playing tomorrow or choosing a different course")
-        
-        return " ".join(suggestions)
+        # Don't play suggestions - these are now handled in generate_what_to_do
+        # This function is deprecated for "Don't play" case
+        return ""
 
 
-def generate_why_bullets(play_recommendation, weather_rating, ground_condition, busyness_rating, handicap_suitability, daylight_label):
+def generate_why_bullets(play_recommendation, weather_rating, ground_condition, busyness_rating, handicap_suitability, daylight_label, handicap):
     """
     Generate exactly 3 bullet points explaining why the verdict was given.
+    Each bullet explains WHAT is happening and WHY it matters.
     Returns a list of 3 strings.
     """
     bullets = []
@@ -716,30 +701,64 @@ def generate_why_bullets(play_recommendation, weather_rating, ground_condition, 
     # Priority order: daylight, weather, ground, busyness, handicap
     # Always include the most significant factors
     
+    # Daylight explanations
     if daylight_label == "Not feasible":
-        bullets.append("Not enough daylight to complete your round safely")
+        bullets.append("Not enough daylight to complete your round safely, which means you'll likely finish in darkness")
     elif daylight_label == "Tight":
-        bullets.append("Daylight is tight, so you'll need to keep a good pace")
+        bullets.append("Daylight is tight for your planned round, which means you'll need to maintain a good pace to finish before sunset")
     
-    if weather_rating == "Poor":
-        bullets.append("Weather conditions are challenging today")
-    elif weather_rating == "Good":
-        bullets.append("Weather looks good for golf")
+    # Weather explanations - explain WHAT and WHY
+    if weather_rating == "Rainy":
+        bullets.append("Rainy conditions today will affect ball flight, visibility, and overall comfort during your round, making it harder to judge distances and control shots")
+    elif weather_rating == "Windy":
+        bullets.append("Windy conditions today will significantly affect ball flight and distance control, making it harder to judge where your shots will land")
+    elif weather_rating == "Cold":
+        bullets.append("Cold conditions today will affect ball flight distance and make it harder to maintain flexibility and feel in your swing")
+    elif weather_rating == "Poor conditions":
+        bullets.append("Poor weather conditions today will affect ball flight, visibility, and overall comfort during your round")
+    elif weather_rating == "Dry":
+        bullets.append("Dry weather conditions today provide ideal ball flight and comfortable playing conditions")
     
+    # Ground condition explanations - explain WHAT and WHY
     if ground_condition == "Soggy":
-        bullets.append("The ground is very wet from recent rain")
+        bullets.append("Recent rain has left the ground very wet, which makes longer approaches and recovery shots harder as the ball won't roll or bounce as expected")
+    elif ground_condition == "Soft":
+        bullets.append("Soft ground conditions from recent rain make approach shots and recovery shots more difficult, as the ball won't get the bounce or roll you might expect")
     elif ground_condition == "Firm":
-        bullets.append("Ground conditions are firm and playable")
+        bullets.append("Firm ground conditions provide good ball roll and predictable bounce, making approach shots and recovery shots easier")
+    elif ground_condition == "Mixed":
+        bullets.append("Mixed ground conditions mean some areas will be firmer than others, requiring you to adapt your approach shots throughout the round")
     
+    # Busyness explanations - explain WHAT and WHY
     if busyness_rating in ["Very busy", "Busy"]:
-        bullets.append("The course is likely to be busy")
+        bullets.append(f"Busier tee times today ({busyness_rating.lower()}) increase waiting between shots, which can affect your rhythm and enjoyment of the round")
     elif busyness_rating == "Quiet":
-        bullets.append("Expect quieter conditions on the course")
+        bullets.append("Quieter conditions today mean less waiting between shots, allowing you to maintain a good rhythm and enjoy a more relaxed pace")
+    elif busyness_rating == "Moderate":
+        bullets.append("Moderate course busyness today means some waiting is likely, but it shouldn't significantly disrupt your round rhythm")
     
+    # Handicap suitability explanations - explain WHAT and WHY
     if handicap_suitability == "Not ideal today":
-        bullets.append("Course difficulty and conditions may not suit your handicap today")
+        # Reference specific conditions and explain impact
+        if busyness_rating in ["Very busy", "Busy"]:
+            bullets.append(f"Given your handicap of {handicap}, today's busy conditions combined with course difficulty are likely to add unnecessary pressure and slow your pace")
+        elif not is_weather_favorable(weather_rating):
+            if weather_rating == "Rainy":
+                bullets.append(f"Given your handicap of {handicap}, today's rainy conditions combined with course difficulty will make the round more challenging than necessary")
+            elif weather_rating == "Windy":
+                bullets.append(f"Given your handicap of {handicap}, today's windy conditions combined with course difficulty will make the round more challenging than necessary")
+            elif weather_rating == "Cold":
+                bullets.append(f"Given your handicap of {handicap}, today's cold conditions combined with course difficulty will make the round more challenging than necessary")
+            else:
+                bullets.append(f"Given your handicap of {handicap}, today's poor weather conditions combined with course difficulty will make the round more challenging than necessary")
+        elif ground_condition in ["Soft", "Soggy"]:
+            bullets.append(f"Given your handicap of {handicap}, today's soft ground conditions combined with course difficulty will make recovery shots and approach play harder")
+        else:
+            bullets.append(f"Given your handicap of {handicap}, today's course difficulty level is likely to add unnecessary difficulty to your round")
     elif handicap_suitability == "Well suited":
-        bullets.append("Course conditions suit your handicap well")
+        bullets.append(f"Given your handicap of {handicap}, today's course conditions are well matched to your skill level, allowing you to play your natural game")
+    elif handicap_suitability == "Borderline":
+        bullets.append(f"Given your handicap of {handicap}, today's course conditions are borderline for your skill level, so expect some challenging moments")
     
     # Ensure we have exactly 3 bullets
     # Prioritise: daylight, weather, then others
@@ -786,81 +805,213 @@ def generate_why_bullets(play_recommendation, weather_rating, ground_condition, 
         if bullet not in priority_bullets and len(priority_bullets) < 3:
             priority_bullets.append(bullet)
     
-    # Ensure exactly 3 bullets
+    # Ensure exactly 3 bullets with explanatory content
     while len(priority_bullets) < 3:
+        # Use available data to create explanatory fallback messages
         if play_recommendation == "Play":
-            priority_bullets.append("Overall conditions are favourable for a round")
+            # Reference the best available condition with explanation
+            if is_weather_favorable(weather_rating) and "weather" not in seen_types:
+                priority_bullets.append("Dry weather conditions today provide ideal ball flight and comfortable playing conditions")
+                seen_types.add("weather")
+            elif ground_condition in ["Firm", "Mixed"] and "ground" not in seen_types:
+                if ground_condition == "Firm":
+                    priority_bullets.append("Firm ground conditions provide good ball roll and predictable bounce, making approach shots easier")
+                else:
+                    priority_bullets.append("Mixed ground conditions mean some areas will be firmer than others, requiring adaptation throughout the round")
+                seen_types.add("ground")
+            elif busyness_rating in ["Quiet", "Moderate"] and "busyness" not in seen_types:
+                if busyness_rating == "Quiet":
+                    priority_bullets.append("Quieter conditions today mean less waiting between shots, allowing you to maintain a good rhythm")
+                else:
+                    priority_bullets.append("Moderate course busyness today means some waiting is likely, but it shouldn't significantly disrupt your round")
+                seen_types.add("busyness")
+            else:
+                # Combine available conditions
+                if "weather" not in seen_types and "ground" not in seen_types:
+                    is_challenging = not is_weather_favorable(weather_rating) or ground_condition in ['Soft', 'Soggy']
+                    priority_bullets.append(f"{weather_rating.lower().capitalize()} weather and {ground_condition.lower()} ground conditions together create {('challenging' if is_challenging else 'favourable')} playing conditions")
+                    seen_types.add("weather")
+                    seen_types.add("ground")
+                else:
+                    break
         else:
-            priority_bullets.append("Multiple factors suggest waiting for better conditions")
+            # Reference the worst available condition with explanation
+            if not is_weather_favorable(weather_rating) and "weather" not in seen_types:
+                if weather_rating == "Rainy":
+                    priority_bullets.append("Rainy conditions today will affect ball flight, visibility, and overall comfort during your round")
+                elif weather_rating == "Windy":
+                    priority_bullets.append("Windy conditions today will significantly affect ball flight and distance control")
+                elif weather_rating == "Cold":
+                    priority_bullets.append("Cold conditions today will affect ball flight distance and make it harder to maintain flexibility")
+                else:
+                    priority_bullets.append("Poor weather conditions today will affect ball flight, visibility, and overall comfort during your round")
+                seen_types.add("weather")
+            elif ground_condition in ["Soft", "Soggy"] and "ground" not in seen_types:
+                if ground_condition == "Soggy":
+                    priority_bullets.append("Recent rain has left the ground very wet, which makes longer approaches and recovery shots harder")
+                else:
+                    priority_bullets.append("Soft ground conditions from recent rain make approach shots and recovery shots more difficult")
+                seen_types.add("ground")
+            elif busyness_rating in ["Very busy", "Busy"] and "busyness" not in seen_types:
+                priority_bullets.append(f"Busier tee times today ({busyness_rating.lower()}) increase waiting between shots, which can affect your rhythm and enjoyment")
+                seen_types.add("busyness")
+            else:
+                # Combine available conditions
+                if "weather" not in seen_types and "ground" not in seen_types:
+                    priority_bullets.append(f"{weather_rating.lower().capitalize()} weather and {ground_condition.lower()} ground conditions together create challenging playing conditions")
+                    seen_types.add("weather")
+                    seen_types.add("ground")
+                else:
+                    break
+        
+        # Prevent infinite loop
+        if len(priority_bullets) >= 3:
+            break
     
     return priority_bullets[:3]
 
 
-def generate_what_to_do(play_recommendation, weather_rating, busyness_rating, handicap_suitability, daylight_label, recommended_holes, time_of_day, day):
+def generate_what_to_do(play_recommendation, weather_rating, busyness_rating, handicap_suitability, daylight_label, recommended_holes, time_of_day, day, handicap, ground_condition):
     """
     Generate practical advice section.
     If Play: "What to expect"
     If Don't play: "What to do instead"
+    Each recommendation is a separate sentence ending with a full stop.
+    Each recommendation explains WHY it helps someone with the user's handicap.
     """
     if play_recommendation == "Play":
         advice_parts = []
         
         if recommended_holes == 9:
-            advice_parts.append(f"Plan for {recommended_holes} holes to ensure you finish in daylight")
+            advice_parts.append(f"Plan for {recommended_holes} holes to ensure you finish in daylight.")
         else:
-            advice_parts.append(f"{recommended_holes} holes should be manageable")
+            advice_parts.append(f"{recommended_holes} holes should be manageable.")
         
         if busyness_rating in ["Quiet", "Moderate"]:
-            advice_parts.append("You should have plenty of space on the course")
+            advice_parts.append(f"Course busyness is {busyness_rating.lower()}, so you should have plenty of space on the course without long waits between shots.")
         elif busyness_rating in ["Busy", "Very busy"]:
-            advice_parts.append("Be prepared for slower play due to busy conditions")
+            advice_parts.append(f"Course busyness is {busyness_rating.lower()}, so be prepared for slower play and longer waits between shots.")
         
-        if weather_rating == "Good":
-            advice_parts.append("Enjoy the good weather conditions")
-        elif weather_rating == "Mixed":
-            advice_parts.append("Keep an eye on the weather as conditions may change")
+        if is_weather_favorable(weather_rating):
+            advice_parts.append(f"Weather is {weather_rating.lower()}, which provides predictable ball flight and comfortable playing conditions.")
         
-        return " ".join(advice_parts) if advice_parts else "Enjoy your round"
+        return " ".join(advice_parts) if advice_parts else f"With {recommended_holes} holes planned and current conditions, you should be able to complete your round."
     else:
         # Don't play - what to do instead
+        # Each recommendation must be a separate sentence ending with a full stop
+        # Each must explain WHY it helps someone with the user's handicap
         alternatives = []
         
-        if daylight_label == "Not feasible":
-            alternatives.append("Try booking an earlier tee time tomorrow")
-        elif daylight_label == "Tight":
-            alternatives.append(f"Consider playing {recommended_holes} holes instead, or start earlier")
+        # Determine handicap category for more specific advice
+        if handicap <= 9:
+            handicap_category = "lower"
+        elif handicap <= 19:
+            handicap_category = "mid"
+        elif handicap <= 28:
+            handicap_category = "higher"
+        else:
+            handicap_category = "higher"
         
-        if weather_rating == "Poor":
+        if daylight_label == "Not feasible":
+            alternatives.append(f"Try booking an earlier tee time tomorrow. With your handicap of {handicap}, finishing in daylight is important to avoid rushed shots and maintain proper form.")
+        elif daylight_label == "Tight":
+            alternatives.append(f"Consider playing {recommended_holes} holes instead, or start earlier. With your handicap of {handicap}, tight daylight adds pressure that can affect your swing tempo.")
+        
+        if not is_weather_favorable(weather_rating):
             if day == "Today":
-                alternatives.append("Check tomorrow's forecast for better conditions")
+                if weather_rating == "Rainy":
+                    alternatives.append(f"Check tomorrow's forecast for better conditions. Rainy weather affects ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots.")
+                elif weather_rating == "Windy":
+                    alternatives.append(f"Check tomorrow's forecast for better conditions. Windy conditions affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots.")
+                elif weather_rating == "Cold":
+                    alternatives.append(f"Check tomorrow's forecast for better conditions. Cold conditions affect ball flight distance and flexibility more significantly for players with your handicap of {handicap}, making it harder to maintain consistent swing tempo.")
+                else:
+                    alternatives.append(f"Check tomorrow's forecast for better conditions. Poor weather conditions affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots.")
             else:
-                alternatives.append("Wait for a day with better weather")
+                if weather_rating == "Rainy":
+                    alternatives.append(f"Wait for a day with better weather. Rainy conditions penalise players with your handicap of {handicap} more heavily, as they affect ball flight and distance control.")
+                elif weather_rating == "Windy":
+                    alternatives.append(f"Wait for a day with better weather. Windy conditions penalise players with your handicap of {handicap} more heavily, as they affect ball flight and distance control.")
+                elif weather_rating == "Cold":
+                    alternatives.append(f"Wait for a day with better weather. Cold conditions penalise players with your handicap of {handicap} more heavily, as they affect ball flight distance and swing flexibility.")
+                else:
+                    alternatives.append(f"Wait for a day with better weather. Poor weather conditions penalise players with your handicap of {handicap} more heavily, as they affect ball flight and distance control.")
+        
+        if ground_condition in ["Soft", "Soggy"]:
+            alternatives.append(f"Consider waiting for firmer ground conditions. Softer ground penalises players with your handicap of {handicap} more heavily, as approach shots won't roll or bounce as expected, making distance control harder.")
         
         if busyness_rating in ["Busy", "Very busy"]:
-            alternatives.append("Try booking at a quieter time, like early morning or late afternoon")
+            alternatives.append(f"Try booking at a quieter time, like early morning or late afternoon. Quieter periods reduce waiting and help players with your handicap of {handicap} maintain tempo and rhythm between shots.")
         
         if handicap_suitability == "Not ideal today":
-            alternatives.append("Consider trying a different course that better matches your skill level")
+            if ground_condition in ["Soft", "Soggy"]:
+                alternatives.append(f"Consider trying a less demanding course today. Softer ground and tighter layouts penalise players with your handicap of {handicap} more heavily, as they require more precise shot placement.")
+            elif busyness_rating in ["Busy", "Very busy"]:
+                alternatives.append(f"Consider trying a less demanding course today. Busier conditions combined with course difficulty add unnecessary pressure for players with your handicap of {handicap}, affecting rhythm and enjoyment.")
+            else:
+                alternatives.append(f"Consider trying a less demanding course today. Course difficulty combined with today's conditions adds unnecessary challenge for players with your handicap of {handicap}.")
         
         if not alternatives:
-            alternatives.append("Try again tomorrow or choose a different time slot")
+            alternatives.append(f"Try again tomorrow or choose a different time slot. Today's conditions are likely to add unnecessary difficulty for players with your handicap of {handicap}.")
         
-        return " ".join(alternatives[:2]) if len(alternatives) >= 2 else alternatives[0] if alternatives else "Consider trying again another day"
+        # Return up to 3 recommendations, each as a separate sentence
+        return " ".join(alternatives[:3]) if len(alternatives) >= 3 else " ".join(alternatives) if alternatives else f"Consider trying again another day. Today's conditions are likely to add unnecessary difficulty for players with your handicap of {handicap}."
 
 
 def get_price_label(price_tier: str) -> str:
     """
-    Convert price tier symbol to descriptive label.
-    Returns: "Affordable", "Mid-range", "Expensive", or "Unknown"
+    Convert price tier symbol to descriptive label with range.
+    Returns: "Low (£0–40)", "Mid (£40–70)", "High (£70+)", or "Unknown"
     """
     if price_tier == "£":
-        return "Affordable"
+        return "Low (£0–40)"
     elif price_tier == "££":
-        return "Mid-range"
+        return "Mid (£40–70)"
     elif price_tier == "£££":
-        return "Expensive"
+        return "High (£70+)"
     else:
         return "Unknown"
+
+
+def get_weather_label(weather_rating: str, weather_data: dict = None) -> str:
+    """
+    Return weather rating as-is (already in condition-based format).
+    Returns: "Dry", "Rainy", "Windy", "Cold", or "Poor conditions"
+    """
+    # Weather rating is already in condition-based format from calculate_weather_rating
+    return weather_rating
+
+
+def get_ground_label(ground_condition: str) -> str:
+    """
+    Convert ground condition to explicit, self-explanatory label.
+    Returns: "Firm", "Mixed", "Soft (Playable but heavy)", "Too soft (Likely to affect play)", or "Soggy"
+    """
+    if ground_condition == "Firm":
+        return "Firm"
+    elif ground_condition == "Mixed":
+        return "Mixed"
+    elif ground_condition == "Soft":
+        return "Soft (Playable but heavy)"
+    elif ground_condition == "Soggy":
+        return "Too soft (Likely to affect play)"
+    else:
+        return ground_condition
+
+
+def get_suitability_label(handicap_suitability: str) -> str:
+    """
+    Convert handicap suitability to explicit, self-explanatory label.
+    Returns: "Well suited", "Borderline", or "Challenging for your handicap today"
+    """
+    if handicap_suitability == "Well suited":
+        return "Well suited"
+    elif handicap_suitability == "Borderline":
+        return "Borderline"
+    elif handicap_suitability == "Not ideal today":
+        return "Challenging for your handicap today"
+    else:
+        return handicap_suitability
 
 
 def generate_explanation_deterministic(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_label, tomorrow_forecast, recommended_holes=None):
@@ -869,13 +1020,13 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
     """
     parts = []
     
-    parts.append(f"The weather conditions are rated as {weather_rating.lower()}")
+    parts.append(f"Weather today is {weather_rating.lower()}")
     if tomorrow_forecast:
         parts.append(f"with tomorrow's forecast {tomorrow_forecast.lower()}")
-    parts.append(f"and the ground condition is {ground_condition.lower()} based on recent rainfall.")
+    parts.append(f"and ground condition is {ground_condition.lower()} based on recent rainfall.")
     
-    parts.append(f"The course busyness is estimated as {busyness_rating.lower()} (not live tee times)")
-    parts.append(f"considering seasonality, weather attractiveness, day of week, time of day, and course popularity.")
+    parts.append(f"Course busyness is estimated as {busyness_rating.lower()} (not live tee times)")
+    parts.append(f"based on seasonality, weather attractiveness, day of week, time of day, and course popularity.")
     
     parts.append(f"For your handicap, this course is {handicap_suitability.lower()} today.")
     
@@ -885,7 +1036,7 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
         else:
             parts.append(f"{recommended_holes} holes is the safer call for daylight.")
     
-    parts.append(f"The price tier is {price_label.lower()} (typical estimate).")
+    parts.append(f"Price tier is {price_label.lower()} (typical estimate based on course type).")
     
     return " ".join(parts)
 
@@ -972,16 +1123,36 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
     # Build next action for sentence 3
     next_step = ""
     if verdict == "Don't play":
-        if recommended_holes == 9:
-            next_step = "9 holes at midday is the safer call, or try morning tomorrow"
+        # Build data-driven next_step based on conditions
+        if daylight_label == "Not feasible":
+            next_step = "Try booking an earlier tee time tomorrow to ensure you finish in daylight"
+        elif recommended_holes == 9:
+            next_step = f"Consider {recommended_holes} holes instead, or try morning tomorrow when daylight is better"
+        elif not is_weather_favorable(weather_rating):
+            if user_day == "Today":
+                next_step = f"Check tomorrow's forecast for better {weather_rating.lower()} conditions"
+            else:
+                next_step = f"Wait for a day with better weather than {weather_rating.lower()}"
+        elif busyness_rating in ["Busy", "Very busy"]:
+            next_step = f"Try booking at a quieter time, like early morning, when course busyness is typically lower than {busyness_rating.lower()}"
         else:
             if user_day == "Today":
                 next_step = "Try morning tomorrow or a quieter course"
             else:
                 next_step = "Try morning or a quieter course"
     else:
-        # Use next_action if available, otherwise provide a generic positive action
-        next_step = assessment_data.get("next_action", "Enjoy your round")
+        # Use next_action if available, otherwise provide data-driven fallback
+        next_action_value = assessment_data.get("next_action", "")
+        if next_action_value:
+            next_step = next_action_value
+        else:
+            # Fallback: reference the conditions that make it good
+            if is_weather_favorable(weather_rating) and busyness_rating in ["Quiet", "Moderate"]:
+                next_step = f"With {weather_rating.lower()} weather and {busyness_rating.lower()} course conditions, you should have a good round"
+            elif is_weather_favorable(weather_rating):
+                next_step = f"With {weather_rating.lower()} weather, conditions are favourable for play"
+            else:
+                next_step = f"With {recommended_holes} holes planned, you should be able to complete your round"
     
     # Use double braces to escape in f-string
     prompt = f"""Write a short, friendly paragraph following this EXACT structure. Use British English. You may rephrase slightly but must keep it casual and concise.
@@ -1579,8 +1750,8 @@ async def read_root():
         <div class="container">
             <div class="form-card">
                 <div class="form-header">
-                    <h1 class="form-title">Playability check</h1>
-                    <p class="form-subtitle">A quick read on weather, ground, and how the round might feel.</p>
+                    <h1 class="form-title">Should I Play Golf Today?</h1>
+                    <p class="form-subtitle">A clear, practical breakdown of weather, ground conditions, course pressure, and whether today suits your handicap.</p>
                 </div>
                 <form method="post" action="/assess">
                     <div class="form-grid">
@@ -1888,11 +2059,11 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # Generate why bullets and what to do sections
     why_bullets = generate_why_bullets(
         play_recommendation, weather_rating, ground_condition, busyness_rating, 
-        handicap_suitability, daylight_label
+        handicap_suitability, daylight_label, handicap
     )
     what_to_do = generate_what_to_do(
         play_recommendation, weather_rating, busyness_rating, handicap_suitability,
-        daylight_label, recommended_holes, time_of_day, day
+        daylight_label, recommended_holes, time_of_day, day, handicap, ground_condition
     )
     
     # Convert price_tier to price_label
@@ -1942,15 +2113,17 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             summary_mode = "Deterministic (LLM failed)"
     
     # Build HTML sections in exact order specified
-    # 1. Weather rating
+    # 1. Weather rating - use explicit labels
+    weather_label_display = get_weather_label(weather_rating, weather_data)
+    ground_label_display = get_ground_label(ground_condition)
     weather_rating_html = f"""
         <div class="result-item">
             <div class="result-label">Weather Rating</div>
-            <div class="result-value">{weather_rating}</div>
+            <div class="result-value">{weather_label_display}</div>
         </div>
         <div class="result-item">
             <div class="result-label">Ground</div>
-            <div class="result-value">{ground_condition}</div>
+            <div class="result-value">{ground_label_display}</div>
         </div>
     """
     if tomorrow_forecast:
@@ -1970,11 +2143,12 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
     """
     
-    # 3. Handicap suitability
+    # 3. Handicap suitability - use explicit label
+    suitability_label_display = get_suitability_label(handicap_suitability)
     handicap_html = f"""
         <div class="result-item">
             <div class="result-label">Handicap Suitability</div>
-            <div class="result-value">{handicap_suitability}</div>
+            <div class="result-value">{suitability_label_display}</div>
         </div>
     """
     
@@ -2024,16 +2198,52 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         if bullet_lower not in seen_bullets:
             unique_bullets.append(bullet)
             seen_bullets.add(bullet_lower)
-    # Ensure we have exactly 3 bullets
+    # Ensure we have exactly 3 bullets with explanatory content (fallback only)
+    # Note: generate_why_bullets should always return 3 bullets, so this is rarely needed
     while len(unique_bullets) < 3:
+        # Use available data to create explanatory fallback messages
         if play_recommendation == "Play":
-            fallback = "Overall conditions are favourable for a round"
+            # Reference the best available condition with explanation
+            if is_weather_favorable(weather_rating) and "weather" not in [b.lower() for b in unique_bullets]:
+                fallback = "Dry weather conditions today provide ideal ball flight and comfortable playing conditions"
+            elif ground_condition in ["Firm", "Mixed"] and "ground" not in [b.lower() for b in unique_bullets]:
+                if ground_condition == "Firm":
+                    fallback = "Firm ground conditions provide good ball roll and predictable bounce, making approach shots easier"
+                else:
+                    fallback = "Mixed ground conditions mean some areas will be firmer than others, requiring adaptation throughout the round"
+            elif busyness_rating in ["Quiet", "Moderate"] and "busy" not in [b.lower() for b in unique_bullets]:
+                if busyness_rating == "Quiet":
+                    fallback = "Quieter conditions today mean less waiting between shots, allowing you to maintain a good rhythm"
+                else:
+                    fallback = "Moderate course busyness today means some waiting is likely, but it shouldn't significantly disrupt your round"
+            else:
+                fallback = f"Given your handicap of {handicap}, today's conditions are well suited for your skill level"
         else:
-            fallback = "Multiple factors suggest waiting for better conditions"
+            # Reference the worst available condition with explanation
+            if not is_weather_favorable(weather_rating) and "weather" not in [b.lower() for b in unique_bullets]:
+                if weather_rating == "Rainy":
+                    fallback = "Rainy conditions today will affect ball flight, visibility, and overall comfort during your round"
+                elif weather_rating == "Windy":
+                    fallback = "Windy conditions today will significantly affect ball flight and distance control"
+                elif weather_rating == "Cold":
+                    fallback = "Cold conditions today will affect ball flight distance and make it harder to maintain flexibility"
+                else:
+                    fallback = "Poor weather conditions today will affect ball flight, visibility, and overall comfort during your round"
+            elif ground_condition in ["Soft", "Soggy"] and "ground" not in [b.lower() for b in unique_bullets]:
+                if ground_condition == "Soggy":
+                    fallback = "Recent rain has left the ground very wet, which makes longer approaches and recovery shots harder"
+                else:
+                    fallback = "Soft ground conditions from recent rain make approach shots and recovery shots more difficult"
+            elif busyness_rating in ["Very busy", "Busy"] and "busy" not in [b.lower() for b in unique_bullets]:
+                fallback = f"Busier tee times today ({busyness_rating.lower()}) increase waiting between shots, which can affect your rhythm and enjoyment"
+            else:
+                fallback = f"Given your handicap of {handicap}, today's conditions are likely to add unnecessary difficulty to your round"
+        
         if fallback.lower() not in seen_bullets:
             unique_bullets.append(fallback)
             seen_bullets.add(fallback.lower())
         else:
+            # Prevent infinite loop - break if we can't add a new unique fallback
             break
     
     why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in unique_bullets[:3]]) + '</ul>'
@@ -2080,7 +2290,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
     """
     
-    # Details section - collapsible
+    # Details section - collapsible - use explicit labels
     details_html = f"""
         <details class="details-card">
             <summary class="details-summary">Show details</summary>
@@ -2090,14 +2300,14 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                         <i data-lucide="cloud-rain"></i>
                         <span>Weather</span>
                     </div>
-                    <div class="detail-value">{weather_rating}</div>
+                    <div class="detail-value">{weather_label_display}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="droplets"></i>
                         <span>Ground</span>
                     </div>
-                    <div class="detail-value">{ground_condition}</div>
+                    <div class="detail-value">{ground_label_display}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
@@ -2111,7 +2321,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                         <i data-lucide="target"></i>
                         <span>Suitability</span>
                     </div>
-                    <div class="detail-value">{handicap_suitability}</div>
+                    <div class="detail-value">{suitability_label_display}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
