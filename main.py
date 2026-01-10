@@ -4,6 +4,7 @@ import asyncio
 import logging
 import subprocess
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
@@ -14,6 +15,10 @@ from uuid import uuid4
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Base directory and paths
+BASE_DIR = Path(__file__).resolve().parent
+COURSES_PATH = BASE_DIR / "data" / "courses.json"
 
 app = FastAPI()
 
@@ -90,14 +95,12 @@ def find_course_by_name(course_name: str):
 
 def load_courses_from_data() -> List[Dict[str, str]]:
     """
-    Load courses from data/courses.json.
+    Load courses from data/courses.json using absolute path.
     Returns list of course dicts with name and area, or empty list on error.
     """
-    courses_file = os.path.join(os.path.dirname(__file__), "data", "courses.json")
-    
     try:
-        if os.path.exists(courses_file):
-            with open(courses_file, "r", encoding="utf-8") as f:
+        if COURSES_PATH.exists():
+            with open(COURSES_PATH, "r", encoding="utf-8") as f:
                 courses = json.load(f)
                 # Validate that courses is a list
                 if isinstance(courses, list):
@@ -106,7 +109,7 @@ def load_courses_from_data() -> List[Dict[str, str]]:
                     if all(all(field in course for field in required_fields) for course in courses):
                         return courses
     except (json.JSONDecodeError, IOError, OSError) as e:
-        logger.error(f"Failed to load courses from data/courses.json: {str(e)}", exc_info=True)
+        logger.error(f"Failed to load courses from {COURSES_PATH}: {str(e)}", exc_info=True)
     
     return []
 
@@ -892,8 +895,10 @@ async def get_courses(q: str = Query(None, description="Search query for course 
     
     # Load courses from data/courses.json
     courses = load_courses_from_data()
+    courses_count = len(courses)
     
     if not courses:
+        logger.info(f"/courses: q='{q}', path={COURSES_PATH}, loaded=0, matches=0")
         return {"results": []}
     
     # Perform case-insensitive substring matching
@@ -914,6 +919,10 @@ async def get_courses(q: str = Query(None, description="Search query for course 
     
     # Return only top 8 matches
     top_matches = matches[:8]
+    matches_count = len(top_matches)
+    
+    # Log request details
+    logger.info(f"/courses: q='{q}', path={COURSES_PATH}, loaded={courses_count}, matches={matches_count}")
     
     # Return only name and area fields
     results = [{"name": course["name"], "area": course["area"]} for course in top_matches]
