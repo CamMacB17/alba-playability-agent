@@ -940,61 +940,75 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     else:
         verdict = "Not ideal"
     
-    # Determine confidence based on signal strength and agreement
-    # Exclude price and daylight from calculation (price is 0% weight, daylight is feasibility only)
-    weighted_factors = ["weather", "ground", "busyness", "suitability"]
-    weighted_scores = {f: factor_scores[f] for f in weighted_factors if f in factor_scores}
+    # Determine confidence based on signal strength and agreement (simplified deterministic rules)
+    # Start at Medium
+    confidence = "Medium"
+    confidence_reason = "Conditions are mixed"
     
-    # Count strongly negative factors (score < 35) and strongly positive factors (score >= 80)
-    strongly_negative = [f for f, score in weighted_scores.items() if score < 35]
-    strongly_positive = [f for f, score in weighted_scores.items() if score >= 80]
+    # Check for strong supporting signals (High confidence)
+    # High when: at least 2 of: weather bad, ground very soft, busyness busy AND handicap fit challenging
+    # OR at least 2 of: weather good, ground firm, busyness quiet AND handicap fit good
+    strong_support_count = 0
     
-    # Check for factor conflicts (one very good, one very bad)
-    has_conflict = len(strongly_negative) > 0 and len(strongly_positive) > 0
+    # Weather is bad (score < 50 or Rain/Windy/Poor conditions)
+    weather_bad = factor_scores.get("weather", 50) < 50 or weather_label in ["Rain", "Windy", "Poor conditions"]
+    # Weather is good (score >= 80 or Dry)
+    weather_good = factor_scores.get("weather", 50) >= 80 or weather_label == "Dry"
     
-    # Determine confidence based on rules
-    if verdict == "Borderline":
-        confidence = "Low"
-        confidence_reason = "Borderline conditions mean factors are mixed and the recommendation is less certain"
-    elif has_conflict:
-        confidence = "Low"
-        # Identify the conflicting factors
-        conflict_pairs = []
-        for pos_factor in strongly_positive:
-            for neg_factor in strongly_negative:
-                conflict_pairs.append((pos_factor, neg_factor))
-        if conflict_pairs:
-            pos_name = conflict_pairs[0][0].capitalize()
-            neg_name = conflict_pairs[0][1].capitalize()
-            confidence_reason = f"{pos_name} conditions are good but {neg_name} conditions are poor, creating conflicting signals"
-        else:
-            confidence_reason = "Factors conflict with some very good and some very poor conditions"
-    elif len(strongly_negative) >= 2:
+    if weather_bad or weather_good:
+        strong_support_count += 1
+    
+    # Ground is very soft/waterlogged (Too soft or score < 35)
+    ground_very_soft = ground_label == "Too soft" or factor_scores.get("ground", 50) < 35
+    # Ground is firm (Firm or score >= 80)
+    ground_firm = ground_label == "Firm" or factor_scores.get("ground", 50) >= 80
+    
+    if ground_very_soft or ground_firm:
+        strong_support_count += 1
+    
+    # Busyness is busy AND handicap fit is challenging
+    busy_and_challenging = (busyness_label in ["Busy", "Very busy"] and 
+                           factor_scores.get("suitability", 50) < 50)
+    # Busyness is quiet AND handicap fit is good
+    quiet_and_good = (busyness_label == "Quiet" and 
+                     factor_scores.get("suitability", 50) >= 70)
+    
+    if busy_and_challenging or quiet_and_good:
+        strong_support_count += 1
+    
+    # Set to High if at least 2 strong supporting signals
+    if strong_support_count >= 2:
         confidence = "High"
-        # Identify which factors are strongly negative
-        factor_names = [f.capitalize() for f in strongly_negative[:2]]
-        if len(factor_names) == 2:
-            confidence_reason = f"{factor_names[0]} and {factor_names[1]} both point strongly against playing"
-        else:
-            confidence_reason = f"Multiple factors point strongly against playing"
-    elif len(strongly_positive) >= 2:
-        confidence = "High"
-        # Identify which factors are strongly positive
-        factor_names = [f.capitalize() for f in strongly_positive[:2]]
-        if len(factor_names) == 2:
-            confidence_reason = f"{factor_names[0]} and {factor_names[1]} both point strongly toward playing"
-        else:
-            confidence_reason = f"Multiple factors point strongly toward playing"
-    else:
-        # Medium confidence: overall_score is clear but factors are mixed
-        confidence = "Medium"
-        # Check if factors are generally aligned (all above 50 or all below 50)
-        all_above_50 = all(score >= 50 for score in weighted_scores.values())
-        all_below_50 = all(score < 50 for score in weighted_scores.values())
-        if all_above_50 or all_below_50:
-            confidence_reason = "Factors are generally aligned but not strongly in one direction"
-        else:
-            confidence_reason = "Overall conditions are clear but individual factors are mixed"
+        confidence_reason = "Multiple factors strongly support this recommendation"
+    
+    # Check for conflicting signals (Low confidence)
+    # Low when: signals conflict OR inputs missing
+    # Conflicts: weather good but ground poor, OR handicap fit good but weather poor
+    ground_poor = factor_scores.get("ground", 50) < 50 or ground_label in ["Soft", "Too soft"]
+    suitability_good = factor_scores.get("suitability", 50) >= 70
+    
+    has_conflict = False
+    if weather_good and ground_poor:
+        has_conflict = True
+        confidence_reason = "Weather is good but ground conditions are poor"
+    elif suitability_good and weather_bad:
+        has_conflict = True
+        confidence_reason = "Course suits your handicap but weather conditions are poor"
+    
+    # Check for missing/unknown inputs
+    has_missing_inputs = False
+    if not weather_data or not ground_info or not busyness_info:
+        has_missing_inputs = True
+        confidence_reason = "Some input data is missing"
+    
+    # Set to Low if conflicts or missing inputs
+    if has_conflict or has_missing_inputs:
+        confidence = "Low"
+    
+    # If still Medium and verdict is Borderline, set to Low
+    if confidence == "Medium" and verdict == "Borderline":
+        confidence = "Low"
+        confidence_reason = "Borderline conditions mean factors are mixed"
     
     # Generate handicap-aware recommendations based on factor thresholds
     if verdict == "Play":
@@ -3411,10 +3425,12 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             <div class="verdict-content">
                 <div class="status-pill">{status_pill_text}</div>
                 <div class="verdict-info">
-                    <div class="verdict-title">{verdict_title}</div>
+                    <div class="verdict-title-row">
+                        <div class="verdict-title">{verdict_title}</div>
+                        <div class="confidence-badge">Confidence: {confidence}</div>
+                    </div>
                     <div class="verdict-course">{course}</div>
                     <div class="verdict-helper">{summary_first_sentence}</div>
-                    <div class="verdict-confidence">Confidence: {confidence}. {confidence_reason}</div>
                 </div>
             </div>
         </div>
@@ -3541,6 +3557,31 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                     padding: 16px;
                 }}
             }}
+            .page-header {{
+                margin-bottom: 20px;
+                text-align: center;
+            }}
+            .page-title {{
+                color: var(--alba-cream);
+                font-weight: 500;
+                font-size: 20px;
+                margin-bottom: 4px;
+                letter-spacing: -0.2px;
+            }}
+            .page-subtitle {{
+                color: rgba(255, 247, 224, 0.7);
+                font-weight: 300;
+                font-size: 13px;
+                line-height: 1.4;
+            }}
+            @media (max-width: 640px) {{
+                .page-title {{
+                    font-size: 18px;
+                }}
+                .page-subtitle {{
+                    font-size: 12px;
+                }}
+            }}
             .verdict-banner {{
                 border-radius: 8px;
                 padding: 14px 18px;
@@ -3574,6 +3615,34 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 flex: 1;
                 min-width: 0;
             }}
+            .verdict-title-row {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 6px;
+                flex-wrap: wrap;
+            }}
+            .verdict-title {{
+                color: var(--alba-cream);
+                font-weight: 600;
+                font-size: 18px;
+                flex: 1;
+                min-width: 0;
+            }}
+            .confidence-badge {{
+                display: inline-block;
+                padding: 3px 8px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 500;
+                font-family: 'Poppins', sans-serif;
+                background: rgba(0, 0, 0, 0.25);
+                color: rgba(255, 247, 224, 0.9);
+                white-space: nowrap;
+                flex-shrink: 0;
+                letter-spacing: 0.3px;
+            }}
             .verdict-course {{
                 color: var(--alba-cream);
                 font-weight: 500;
@@ -3592,16 +3661,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 -webkit-line-clamp: 2;
                 -webkit-box-orient: vertical;
                 overflow: hidden;
-                margin-bottom: 8px;
-            }}
-            .verdict-confidence {{
-                color: rgba(255, 247, 224, 0.85);
-                font-weight: 400;
-                font-size: 12px;
-                line-height: 1.4;
-                margin-top: 8px;
-                padding-top: 8px;
-                border-top: 1px solid rgba(255, 247, 224, 0.2);
+                margin-bottom: 0;
             }}
             @media (max-width: 640px) {{
                 .verdict-banner {{
@@ -3610,6 +3670,18 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 .verdict-content {{
                     flex-direction: column;
                     gap: 10px;
+                }}
+                .verdict-title-row {{
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 8px;
+                }}
+                .verdict-title {{
+                    font-size: 16px;
+                }}
+                .confidence-badge {{
+                    font-size: 9px;
+                    padding: 2px 6px;
                 }}
                 .verdict-course {{
                     font-size: 14px;
@@ -3775,22 +3847,34 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 font-size: 10px;
                 text-transform: uppercase;
                 letter-spacing: 0.8px;
-                margin-bottom: 6px;
+                margin-bottom: 5px;
+                line-height: 1;
             }}
             .detail-label i {{
                 width: 19px;
                 height: 19px;
-                opacity: 0.85;
+                flex-shrink: 0;
                 color: inherit;
+                opacity: 0.6;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+            .detail-label i svg {{
+                width: 100%;
+                height: 100%;
+                stroke-width: 1.75;
             }}
             .detail-label span {{
                 flex: 1;
+                line-height: 1;
             }}
             .detail-value {{
                 color: var(--alba-cream);
                 font-size: 16px;
                 font-weight: 600;
                 line-height: 1.4;
+                margin-top: 0;
             }}
             .back-link {{
                 display: inline-block;
@@ -3808,6 +3892,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     </head>
     <body>
         <div class="container">
+            <div class="page-header">
+                <h1 class="page-title">Should I Play Golf Today?</h1>
+                <p class="page-subtitle">A clear, practical breakdown of weather, ground conditions, course pressure, and whether today suits your handicap.</p>
+            </div>
             {verdict_banner_html}
             
             <div class="cards-grid">
@@ -3836,7 +3924,13 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             (function() {{
                 function initIcons() {{
                     if (typeof lucide !== 'undefined') {{
-                        lucide.createIcons();
+                        lucide.createIcons({{
+                            attrs: {{
+                                width: 19,
+                                height: 19,
+                                strokeWidth: 1.75
+                            }}
+                        }});
                     }}
                 }}
                 
