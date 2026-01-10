@@ -1308,87 +1308,147 @@ async def read_root():
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             * {{
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
             }}
+            html, body {{
+                height: auto;
+            }}
             body {{
                 font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                background: linear-gradient(135deg, #f5e6d3 0%, #fae8d4 50%, #f5e6d3 100%);
-                min-height: 100vh;
-                padding: 60px 20px;
-                line-height: 1.7;
-                color: #3d3d3d;
+                background: #2C2C2F;
+                padding: 24px 16px;
+                line-height: 1.6;
+                color: #FFF7E0;
             }}
             .container {{
-                max-width: 560px;
+                max-width: 720px;
                 margin: 0 auto;
             }}
             .form-card {{
-                background: rgba(255, 255, 255, 0.9);
-                backdrop-filter: blur(10px);
-                border-radius: 24px;
-                padding: 48px 40px;
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-                margin-bottom: 32px;
+                background: #303035;
+                border-radius: 12px;
+                padding: 24px 20px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
             }}
-            .form-heading {{
-                color: #2c2c2c;
-                font-weight: 400;
-                font-size: 28px;
-                margin-bottom: 36px;
-                letter-spacing: -0.3px;
+            .form-header {{
+                margin-bottom: 20px;
                 text-align: center;
+            }}
+            .form-title {{
+                color: #FFF7E0;
+                font-weight: 500;
+                font-size: 20px;
+                margin-bottom: 6px;
+                letter-spacing: -0.2px;
+            }}
+            .form-subtitle {{
+                color: rgba(255, 247, 224, 0.7);
+                font-weight: 300;
+                font-size: 13px;
+                line-height: 1.4;
+            }}
+            @media (max-width: 640px) {{
+                .form-title {{
+                    font-size: 18px;
+                }}
+                .form-subtitle {{
+                    font-size: 12px;
+                }}
             }}
             form {{
                 margin-top: 0;
             }}
             .form-group {{
-                margin-bottom: 28px;
+                margin-bottom: 16px;
             }}
             .form-group:last-of-type {{
-                margin-bottom: 36px;
+                margin-bottom: 20px;
+            }}
+            .form-row {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+            }}
+            @media (max-width: 640px) {{
+                .form-row {{
+                    grid-template-columns: 1fr;
+                }}
             }}
             label {{
                 display: block;
-                margin-bottom: 10px;
+                margin-bottom: 6px;
                 font-weight: 500;
-                font-size: 15px;
-                color: #4a4a4a;
+                font-size: 13px;
+                color: #FFF7E0;
                 letter-spacing: 0.1px;
             }}
             select, input[type="number"], input[type="text"] {{
                 width: 100%;
-                padding: 14px 18px;
+                padding: 10px 14px;
                 font-size: 15px;
                 font-family: 'Poppins', sans-serif;
-                border: none;
-                border-radius: 12px;
-                background: rgba(255, 255, 255, 0.9);
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 8px;
+                background: #2C2C2F;
                 transition: all 0.2s ease;
-                color: #2c2c2c;
+                color: #FFF7E0;
             }}
             select:focus, input[type="number"]:focus, input[type="text"]:focus {{
                 outline: none;
-                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-                background: rgba(255, 255, 255, 1);
+                border-color: #F78222;
+                box-shadow: 0 0 0 3px rgba(247, 130, 34, 0.2);
+            }}
+            .course-input-wrapper {{
+                position: relative;
+            }}
+            .course-helper {{
+                font-size: 11px;
+                color: rgba(255, 247, 224, 0.5);
+                margin-top: 4px;
+                font-weight: 300;
+            }}
+            .course-chips {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-top: 8px;
+            }}
+            .course-chip {{
+                display: inline-block;
+                padding: 4px 10px;
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                font-size: 11px;
+                color: rgba(255, 247, 224, 0.7);
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-weight: 400;
+            }}
+            .course-chip:hover {{
+                background: rgba(247, 130, 34, 0.2);
+                border-color: #F78222;
+                color: #FFF7E0;
             }}
             .autocomplete-container {{
                 position: relative;
             }}
             .autocomplete-suggestions {{
                 position: absolute;
-                top: calc(100% + 8px);
+                top: calc(100% + 4px);
                 left: 0;
                 right: 0;
-                background: rgba(255, 255, 255, 0.98);
-                backdrop-filter: blur(10px);
-                border-radius: 16px;
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-                max-height: 320px;
+                background: #303035;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                max-height: 280px;
                 overflow-y: auto;
                 z-index: 1000;
                 display: none;
@@ -1397,38 +1457,38 @@ async def read_root():
                 display: block;
             }}
             .autocomplete-suggestion {{
-                padding: 14px 18px;
+                padding: 12px 16px;
                 cursor: pointer;
                 transition: background-color 0.15s ease;
                 font-size: 15px;
-                color: #3d3d3d;
+                color: #FFF7E0;
             }}
             .autocomplete-suggestion:first-child {{
-                border-radius: 16px 16px 0 0;
+                border-radius: 8px 8px 0 0;
             }}
             .autocomplete-suggestion:last-child {{
-                border-radius: 0 0 16px 16px;
+                border-radius: 0 0 8px 8px;
             }}
             .autocomplete-suggestion:hover,
             .autocomplete-suggestion.highlighted {{
-                background-color: rgba(245, 230, 211, 0.5);
+                background-color: rgba(255, 255, 255, 0.1);
             }}
             .autocomplete-no-matches {{
-                padding: 18px;
-                color: #888;
+                padding: 16px;
+                color: rgba(255, 247, 224, 0.6);
                 font-size: 14px;
                 text-align: center;
             }}
             .help-text {{
                 font-size: 12px;
-                color: #999;
+                color: rgba(255, 247, 224, 0.6);
                 margin-top: 6px;
                 font-weight: 300;
-                line-height: 1.5;
+                line-height: 1.4;
             }}
             .error-message {{
                 font-size: 12px;
-                color: #c85a5a;
+                color: #E23642;
                 margin-top: 6px;
                 font-weight: 400;
                 display: none;
@@ -1437,34 +1497,43 @@ async def read_root():
                 display: block;
             }}
             .primary-button {{
-                background: linear-gradient(135deg, #ff8c42 0%, #ff7a2e 100%);
-                color: white;
-                padding: 16px 32px;
+                background: #F78222;
+                color: #000000;
+                padding: 12px 24px;
                 border: none;
-                border-radius: 12px;
+                border-radius: 8px;
                 cursor: pointer;
-                font-size: 16px;
+                font-size: 15px;
                 font-weight: 500;
                 font-family: 'Poppins', sans-serif;
-                box-shadow: 0 4px 20px rgba(255, 140, 66, 0.35);
                 transition: all 0.2s ease;
                 width: 100%;
                 margin-top: 0;
             }}
+            @media (min-width: 641px) {{
+                .primary-button {{
+                    width: auto;
+                    min-width: 180px;
+                }}
+            }}
             .primary-button:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 6px 24px rgba(255, 140, 66, 0.45);
-                background: linear-gradient(135deg, #ff9642 0%, #ff8a3e 100%);
+                background: #FBB924;
+                transform: translateY(-1px);
             }}
             .primary-button:active {{
                 transform: translateY(0);
             }}
+            .button-wrapper {{
+                display: flex;
+                justify-content: center;
+                margin-top: 4px;
+            }}
             .build-footer {{
                 font-size: 11px;
-                color: #999;
+                color: rgba(255, 247, 224, 0.4);
                 text-align: center;
-                margin-top: 48px;
-                padding-top: 24px;
+                margin-top: 24px;
+                padding-top: 16px;
                 font-weight: 300;
             }}
         </style>
@@ -1472,15 +1541,25 @@ async def read_root():
     <body>
         <div class="container">
             <div class="form-card">
-                <h2 class="form-heading">Check playability</h2>
+                <div class="form-header">
+                    <h1 class="form-title">Playability check</h1>
+                    <p class="form-subtitle">A quick read on weather, ground, and how the round might feel.</p>
+                </div>
                 <form method="post" action="/assess">
                     <div class="form-group">
                         <label for="course">Course</label>
-                        <div class="autocomplete-container">
-                            <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
-                            <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
+                        <div class="course-input-wrapper">
+                            <div class="autocomplete-container">
+                                <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
+                                <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
+                            </div>
+                            <div class="course-helper">Start typing a course name</div>
+                            <div class="course-chips">
+                                <span class="course-chip" data-course="Trent Park Golf Club">Trent Park</span>
+                                <span class="course-chip" data-course="Richmond Park Golf Course">Richmond Park</span>
+                                <span class="course-chip" data-course="Dukes Meadows Golf Course">Dukes Meadows</span>
+                            </div>
                         </div>
-                        <div class="help-text">Try: Trent Park, Richmond Park, Dukes Meadows</div>
                         <div id="course-error" class="error-message">Please select a course</div>
                     </div>
                     
@@ -1490,25 +1569,29 @@ async def read_root():
                         <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="day">Day</label>
-                        <select id="day" name="day" required>
-                            <option value="Today">Today</option>
-                            <option value="Tomorrow">Tomorrow</option>
-                        </select>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="day">Day</label>
+                            <select id="day" name="day" required>
+                                <option value="Today">Today</option>
+                                <option value="Tomorrow">Tomorrow</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="time_of_day">Time of day</label>
+                            <select id="time_of_day" name="time_of_day" required>
+                                <option value="Morning">Morning</option>
+                                <option value="Midday">Midday</option>
+                                <option value="Afternoon">Afternoon</option>
+                                <option value="Evening">Evening</option>
+                            </select>
+                        </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="time_of_day">Time of day</label>
-                        <select id="time_of_day" name="time_of_day" required>
-                            <option value="Morning">Morning</option>
-                            <option value="Midday">Midday</option>
-                            <option value="Afternoon">Afternoon</option>
-                            <option value="Evening">Evening</option>
-                        </select>
+                    <div class="button-wrapper">
+                        <button type="submit" class="primary-button">Check playability</button>
                     </div>
-                    
-                    <button type="submit" class="primary-button">Check playability</button>
                 </form>
             </div>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
@@ -1667,6 +1750,17 @@ async def read_root():
                         courseError.classList.remove('show');
                     }}
                 }});
+                
+                // Course chip click handlers
+                const courseChips = document.querySelectorAll('.course-chip');
+                courseChips.forEach(chip => {{
+                    chip.addEventListener('click', function() {{
+                        const courseName = this.getAttribute('data-course');
+                        courseInput.value = courseName;
+                        courseError.classList.remove('show');
+                        hideSuggestions();
+                    }});
+                }});
             }})();
         </script>
             </div>
@@ -1677,7 +1771,7 @@ async def read_root():
     """
 
 
-async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None, request_id: str = None):
+async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None, request_id: str = None, debug_mode: bool = False):
     """
     Shared function to calculate ratings and render assessment results.
     
@@ -1874,10 +1968,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # Convert play_recommendation to user-friendly verdict
     if play_recommendation == "Play":
         verdict_text = "Worth playing"
-        verdict_color = "#2c2c2c"
+        verdict_color = "#FFF7E0"
     else:
         verdict_text = "Not ideal today"
-        verdict_color = "#666"
+        verdict_color = "#FFF7E0"
     
     # 5. Explanation paragraph - break into sentences for better scanability
     # Determine mode badge text based on llm_effective_enabled
@@ -1900,8 +1994,27 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
     """
     
-    # 6. Why section with 3 bullets
-    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets]) + '</ul>'
+    # 6. Why section with 3 bullets - dedupe if needed
+    unique_bullets = []
+    seen_bullets = set()
+    for bullet in why_bullets:
+        bullet_lower = bullet.lower()
+        if bullet_lower not in seen_bullets:
+            unique_bullets.append(bullet)
+            seen_bullets.add(bullet_lower)
+    # Ensure we have exactly 3 bullets
+    while len(unique_bullets) < 3:
+        if play_recommendation == "Play":
+            fallback = "Overall conditions are favourable for a round"
+        else:
+            fallback = "Multiple factors suggest waiting for better conditions"
+        if fallback.lower() not in seen_bullets:
+            unique_bullets.append(fallback)
+            seen_bullets.add(fallback.lower())
+        else:
+            break
+    
+    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in unique_bullets[:3]]) + '</ul>'
     why_html = f"""
         <div class="result-item">
             <div class="result-label">Why</div>
@@ -1918,6 +2031,36 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
     """
     
+    # Verdict banner
+    verdict_banner_bg = "#4A9B5A" if play_recommendation == "Play" else "#E23642"  # Modern green for Play, red for Don't play
+    verdict_banner_html = f"""
+        <div class="verdict-banner" style="background: {verdict_banner_bg};">
+            <div class="verdict-banner-text">{verdict_text}</div>
+        </div>
+    """
+    
+    # Compact header with course name and day/time
+    compact_header_html = f"""
+        <div class="compact-header">
+            <div class="course-name-compact">{course}</div>
+            <div class="day-time-compact">{day} · {time_of_day}</div>
+        </div>
+    """
+    
+    # Debug info (only shown if debug_mode is True)
+    debug_info_html = ""
+    if debug_mode:
+        debug_info_html = f"""
+        <div class="result-item debug-info">
+            <div class="result-label">Debug</div>
+            <div class="result-value">
+                llm_raw: {llm_raw if llm_raw is not None else 'None'}<br>
+                llm_force: {force_llm}<br>
+                effective: {llm_effective_enabled}
+            </div>
+        </div>
+        """
+    
     return f"""
     <!DOCTYPE html>
     <html>
@@ -1926,72 +2069,105 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             * {{
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
             }}
+            html, body {{
+                height: auto;
+            }}
             body {{
                 font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                background: linear-gradient(135deg, #f5e6d3 0%, #fae8d4 50%, #f5e6d3 100%);
-                min-height: 100vh;
-                padding: 60px 20px;
-                line-height: 1.7;
-                color: #3d3d3d;
+                background: #2C2C2F;
+                padding: 24px 16px;
+                line-height: 1.6;
+                color: #FFF7E0;
             }}
             .container {{
                 max-width: 720px;
                 margin: 0 auto;
             }}
-            .verdict-heading {{
-                color: #2c2c2c;
-                font-weight: 400;
-                font-size: 42px;
-                margin-bottom: 40px;
-                letter-spacing: -0.8px;
+            .verdict-banner {{
+                border-radius: 8px;
+                padding: 14px 20px;
+                margin-bottom: 16px;
                 text-align: center;
-                line-height: 1.2;
             }}
-            .course-name {{
-                text-align: center;
+            .verdict-banner-text {{
+                color: #FFF7E0;
+                font-weight: 500;
                 font-size: 18px;
-                color: #666;
-                margin-bottom: 48px;
+                letter-spacing: -0.2px;
+            }}
+            @media (max-width: 640px) {{
+                .verdict-banner-text {{
+                    font-size: 16px;
+                }}
+            }}
+            .compact-header {{
+                margin-bottom: 20px;
+                text-align: center;
+            }}
+            .course-name-compact {{
+                font-size: 16px;
+                color: #FFF7E0;
+                font-weight: 500;
+                margin-bottom: 4px;
+            }}
+            .day-time-compact {{
+                font-size: 13px;
+                color: rgba(255, 247, 224, 0.6);
                 font-weight: 400;
             }}
             .supporting-content {{
-                margin-top: 32px;
+                margin-top: 16px;
+            }}
+            .why-what-grid {{
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+                margin-bottom: 12px;
+            }}
+            @media (max-width: 640px) {{
+                .why-what-grid {{
+                    grid-template-columns: 1fr;
+                }}
+            }}
+            .debug-info {{
+                display: none;
             }}
             .result-item {{
-                margin-bottom: 16px;
-                padding: 20px 24px;
-                background: rgba(255, 255, 255, 0.85);
-                backdrop-filter: blur(10px);
-                border-radius: 16px;
-                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+                margin-bottom: 12px;
+                padding: 16px 20px;
+                background: #303035;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
                 transition: transform 0.2s ease, box-shadow 0.2s ease;
             }}
             .result-item:hover {{
                 transform: translateY(-1px);
-                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             }}
             .result-label {{
                 font-weight: 500;
-                color: #5a5a5a;
-                margin-bottom: 8px;
-                font-size: 13px;
+                color: rgba(255, 247, 224, 0.8);
+                margin-bottom: 6px;
+                font-size: 12px;
                 letter-spacing: 0.3px;
                 text-transform: uppercase;
             }}
             .result-value {{
-                color: #2c2c2c;
+                color: #FFF7E0;
                 font-size: 15px;
                 font-weight: 400;
                 line-height: 1.6;
             }}
             .result-value p {{
-                margin-bottom: 12px;
+                margin-bottom: 10px;
             }}
             .result-value p:last-child {{
                 margin-bottom: 0;
@@ -2002,64 +2178,67 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 margin: 0;
             }}
             .why-bullets li {{
-                padding: 8px 0;
-                padding-left: 24px;
+                padding: 6px 0;
+                padding-left: 20px;
                 position: relative;
                 line-height: 1.6;
             }}
             .why-bullets li:before {{
                 content: "•";
                 position: absolute;
-                left: 8px;
-                color: #8b6f47;
-                font-size: 18px;
+                left: 6px;
+                color: #F78222;
+                font-size: 16px;
                 line-height: 1.4;
             }}
             .help-text {{
-                font-size: 13px;
-                color: #888;
-                margin-top: 8px;
+                font-size: 12px;
+                color: rgba(255, 247, 224, 0.6);
+                margin-top: 6px;
                 font-weight: 300;
                 font-style: normal;
             }}
             .mode-badge {{
                 display: inline-block;
-                font-size: 11px;
-                padding: 4px 10px;
-                background: rgba(212, 165, 116, 0.15);
-                border-radius: 8px;
-                color: #8b6f47;
+                font-size: 10px;
+                padding: 3px 8px;
+                background: rgba(247, 130, 34, 0.2);
+                border-radius: 6px;
+                color: #F78222;
                 font-weight: 500;
-                margin-left: 10px;
+                margin-left: 8px;
                 font-style: normal;
                 text-transform: none;
                 letter-spacing: 0;
             }}
             .back-link {{
                 display: inline-block;
-                margin-top: 32px;
-                color: #8b6f47;
+                margin-top: 20px;
+                color: #FBB924;
                 text-decoration: none;
                 font-weight: 500;
-                font-size: 15px;
+                font-size: 14px;
                 transition: color 0.2s ease;
             }}
             .back-link:hover {{
-                color: #6b5435;
+                color: #F78222;
             }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1 class="verdict-heading" style="color: {verdict_color};">{verdict_text}</h1>
-            <div class="course-name">{course}</div>
+            {verdict_banner_html}
+            {compact_header_html}
             
             <div class="supporting-content">
-                {why_html}
-                
-                {what_html}
+                <div class="why-what-grid">
+                    {why_html}
+                    {what_html}
+                </div>
                 
                 {explanation_html}
+                
+                {debug_info_html}
                 
                 <div class="result-item">
                     <div class="result-label">Course</div>
@@ -2138,7 +2317,8 @@ async def assess_get(
     handicap: int = Query(None),
     day: str = Query(None),
     time_of_day: str = Query(None),
-    llm: str = Query(None, description="Set to 1, '1', 'true', 'True', or 'yes' to force LLM summary")
+    llm: str = Query(None, description="Set to 1, '1', 'true', 'True', or 'yes' to force LLM summary"),
+    debug: str = Query(None, description="Set to 1 to show debug information")
 ):
     """
     Handle GET request for assessment results.
@@ -2155,6 +2335,9 @@ async def assess_get(
     llm_raw = llm
     llm_force = parse_llm_parameter(llm)
     
+    # Parse debug parameter
+    debug_mode = debug == "1"
+    
     # Generate unique request ID for this request
     request_id = str(uuid4())
     
@@ -2166,7 +2349,7 @@ async def assess_get(
     logger.info(f"ASSESS: request_id={request_id} llm_query={llm_raw} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
     
     # Render results
-    return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id)
+    return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id, debug_mode)
 
 
 if __name__ == "__main__":
