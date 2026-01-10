@@ -706,15 +706,157 @@ def generate_added_action(play_recommendation, time_of_day, busyness_rating, wea
         return " ".join(suggestions)
 
 
+def generate_why_bullets(play_recommendation, weather_rating, ground_condition, busyness_rating, handicap_suitability, daylight_label):
+    """
+    Generate exactly 3 bullet points explaining why the verdict was given.
+    Returns a list of 3 strings.
+    """
+    bullets = []
+    
+    # Priority order: daylight, weather, ground, busyness, handicap
+    # Always include the most significant factors
+    
+    if daylight_label == "Not feasible":
+        bullets.append("Not enough daylight to complete your round safely")
+    elif daylight_label == "Tight":
+        bullets.append("Daylight is tight, so you'll need to keep a good pace")
+    
+    if weather_rating == "Poor":
+        bullets.append("Weather conditions are challenging today")
+    elif weather_rating == "Good":
+        bullets.append("Weather looks good for golf")
+    
+    if ground_condition == "Soggy":
+        bullets.append("The ground is very wet from recent rain")
+    elif ground_condition == "Firm":
+        bullets.append("Ground conditions are firm and playable")
+    
+    if busyness_rating in ["Very busy", "Busy"]:
+        bullets.append("The course is likely to be busy")
+    elif busyness_rating == "Quiet":
+        bullets.append("Expect quieter conditions on the course")
+    
+    if handicap_suitability == "Not ideal today":
+        bullets.append("Course difficulty and conditions may not suit your handicap today")
+    elif handicap_suitability == "Well suited":
+        bullets.append("Course conditions suit your handicap well")
+    
+    # Ensure we have exactly 3 bullets
+    # Prioritise: daylight, weather, then others
+    priority_bullets = []
+    seen_types = set()
+    
+    # First pass: add daylight if present
+    for bullet in bullets:
+        if "daylight" in bullet.lower() or "light" in bullet.lower():
+            priority_bullets.append(bullet)
+            seen_types.add("daylight")
+            break
+    
+    # Second pass: add weather if present
+    for bullet in bullets:
+        if "weather" in bullet.lower() and "weather" not in seen_types:
+            priority_bullets.append(bullet)
+            seen_types.add("weather")
+            break
+    
+    # Third pass: add ground if present
+    for bullet in bullets:
+        if ("ground" in bullet.lower() or "wet" in bullet.lower()) and "ground" not in seen_types:
+            priority_bullets.append(bullet)
+            seen_types.add("ground")
+            break
+    
+    # Fourth pass: add busyness if present
+    for bullet in bullets:
+        if ("busy" in bullet.lower() or "quiet" in bullet.lower()) and "busyness" not in seen_types:
+            priority_bullets.append(bullet)
+            seen_types.add("busyness")
+            break
+    
+    # Fifth pass: add handicap if present
+    for bullet in bullets:
+        if ("handicap" in bullet.lower() or "difficulty" in bullet.lower()) and "handicap" not in seen_types:
+            priority_bullets.append(bullet)
+            seen_types.add("handicap")
+            break
+    
+    # Fill remaining slots with any remaining bullets
+    for bullet in bullets:
+        if bullet not in priority_bullets and len(priority_bullets) < 3:
+            priority_bullets.append(bullet)
+    
+    # Ensure exactly 3 bullets
+    while len(priority_bullets) < 3:
+        if play_recommendation == "Play":
+            priority_bullets.append("Overall conditions are favourable for a round")
+        else:
+            priority_bullets.append("Multiple factors suggest waiting for better conditions")
+    
+    return priority_bullets[:3]
+
+
+def generate_what_to_do(play_recommendation, weather_rating, busyness_rating, handicap_suitability, daylight_label, recommended_holes, time_of_day, day):
+    """
+    Generate practical advice section.
+    If Play: "What to expect"
+    If Don't play: "What to do instead"
+    """
+    if play_recommendation == "Play":
+        advice_parts = []
+        
+        if recommended_holes == 9:
+            advice_parts.append(f"Plan for {recommended_holes} holes to ensure you finish in daylight")
+        else:
+            advice_parts.append(f"{recommended_holes} holes should be manageable")
+        
+        if busyness_rating in ["Quiet", "Moderate"]:
+            advice_parts.append("You should have plenty of space on the course")
+        elif busyness_rating in ["Busy", "Very busy"]:
+            advice_parts.append("Be prepared for slower play due to busy conditions")
+        
+        if weather_rating == "Good":
+            advice_parts.append("Enjoy the good weather conditions")
+        elif weather_rating == "Mixed":
+            advice_parts.append("Keep an eye on the weather as conditions may change")
+        
+        return " ".join(advice_parts) if advice_parts else "Enjoy your round"
+    else:
+        # Don't play - what to do instead
+        alternatives = []
+        
+        if daylight_label == "Not feasible":
+            alternatives.append("Try booking an earlier tee time tomorrow")
+        elif daylight_label == "Tight":
+            alternatives.append(f"Consider playing {recommended_holes} holes instead, or start earlier")
+        
+        if weather_rating == "Poor":
+            if day == "Today":
+                alternatives.append("Check tomorrow's forecast for better conditions")
+            else:
+                alternatives.append("Wait for a day with better weather")
+        
+        if busyness_rating in ["Busy", "Very busy"]:
+            alternatives.append("Try booking at a quieter time, like early morning or late afternoon")
+        
+        if handicap_suitability == "Not ideal today":
+            alternatives.append("Consider trying a different course that better matches your skill level")
+        
+        if not alternatives:
+            alternatives.append("Try again tomorrow or choose a different time slot")
+        
+        return " ".join(alternatives[:2]) if len(alternatives) >= 2 else alternatives[0] if alternatives else "Consider trying again another day"
+
+
 def get_price_label(price_tier: str) -> str:
     """
     Convert price tier symbol to descriptive label.
-    Returns: "Affordable", "Mid range", "Expensive", or "Unknown"
+    Returns: "Affordable", "Mid-range", "Expensive", or "Unknown"
     """
     if price_tier == "£":
         return "Affordable"
     elif price_tier == "££":
-        return "Mid range"
+        return "Mid-range"
     elif price_tier == "£££":
         return "Expensive"
     else:
@@ -762,7 +904,7 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         - ground_rating: str (Firm/Mixed/Soft/Soggy)
         - busyness_rating: str (Quiet/Moderate/Busy/Very busy)
         - suitability_rating: str (Well suited/Borderline/Not ideal today)
-        - price_label: str (Affordable/Mid range/Expensive)
+        - price_label: str (Affordable/Mid-range/Expensive)
         - verdict: str (Play/Don't play)
         - next_action: str
         - recommended_holes: int (18 or 9)
@@ -859,7 +1001,7 @@ Sentence 3: "Verdict: {verdict}. {{next_step}}."
 - next_step: "{next_step}"
 
 Optional Sentence 4: "Price: {price_label}."
-- price_label: Use exactly "{price_label}" (Affordable, Mid range, or Expensive)
+- price_label: Use exactly "{price_label}" (Affordable, Mid-range, or Expensive)
 
 Tone:
 - Sound like a helpful golfer friend, casual and friendly
@@ -1163,149 +1305,212 @@ async def read_root():
     <html>
     <head>
         <title>Alba Labs</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
         <style>
-            body {{
-                font-family: Arial, sans-serif;
-                max-width: 600px;
-                margin: 50px auto;
-                padding: 20px;
-                line-height: 1.6;
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
             }}
-            h1 {{
-                color: #333;
+            body {{
+                font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: linear-gradient(135deg, #f5e6d3 0%, #fae8d4 50%, #f5e6d3 100%);
+                min-height: 100vh;
+                padding: 60px 20px;
+                line-height: 1.7;
+                color: #3d3d3d;
+            }}
+            .container {{
+                max-width: 560px;
+                margin: 0 auto;
+            }}
+            .form-card {{
+                background: rgba(255, 255, 255, 0.9);
+                backdrop-filter: blur(10px);
+                border-radius: 24px;
+                padding: 48px 40px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+                margin-bottom: 32px;
+            }}
+            .form-heading {{
+                color: #2c2c2c;
+                font-weight: 400;
+                font-size: 28px;
+                margin-bottom: 36px;
+                letter-spacing: -0.3px;
+                text-align: center;
             }}
             form {{
-                margin-top: 30px;
+                margin-top: 0;
             }}
             .form-group {{
-                margin-bottom: 20px;
+                margin-bottom: 28px;
+            }}
+            .form-group:last-of-type {{
+                margin-bottom: 36px;
             }}
             label {{
                 display: block;
-                margin-bottom: 5px;
-                font-weight: bold;
+                margin-bottom: 10px;
+                font-weight: 500;
+                font-size: 15px;
+                color: #4a4a4a;
+                letter-spacing: 0.1px;
             }}
             select, input[type="number"], input[type="text"] {{
                 width: 100%;
-                padding: 8px;
-                font-size: 14px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                box-sizing: border-box;
+                padding: 14px 18px;
+                font-size: 15px;
+                font-family: 'Poppins', sans-serif;
+                border: none;
+                border-radius: 12px;
+                background: rgba(255, 255, 255, 0.9);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+                transition: all 0.2s ease;
+                color: #2c2c2c;
+            }}
+            select:focus, input[type="number"]:focus, input[type="text"]:focus {{
+                outline: none;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+                background: rgba(255, 255, 255, 1);
             }}
             .autocomplete-container {{
                 position: relative;
             }}
             .autocomplete-suggestions {{
                 position: absolute;
-                top: 100%;
+                top: calc(100% + 8px);
                 left: 0;
                 right: 0;
-                background: white;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-                max-height: 300px;
+                background: rgba(255, 255, 255, 0.98);
+                backdrop-filter: blur(10px);
+                border-radius: 16px;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+                max-height: 320px;
                 overflow-y: auto;
                 z-index: 1000;
-                margin-top: 2px;
                 display: none;
             }}
             .autocomplete-suggestions.show {{
                 display: block;
             }}
             .autocomplete-suggestion {{
-                padding: 10px;
+                padding: 14px 18px;
                 cursor: pointer;
-                border-bottom: 1px solid #eee;
+                transition: background-color 0.15s ease;
+                font-size: 15px;
+                color: #3d3d3d;
+            }}
+            .autocomplete-suggestion:first-child {{
+                border-radius: 16px 16px 0 0;
             }}
             .autocomplete-suggestion:last-child {{
-                border-bottom: none;
+                border-radius: 0 0 16px 16px;
             }}
             .autocomplete-suggestion:hover,
             .autocomplete-suggestion.highlighted {{
-                background-color: #f0f0f0;
+                background-color: rgba(245, 230, 211, 0.5);
             }}
             .autocomplete-no-matches {{
-                padding: 10px;
-                color: #666;
-                font-size: 12px;
+                padding: 18px;
+                color: #888;
+                font-size: 14px;
+                text-align: center;
             }}
             .help-text {{
                 font-size: 12px;
-                color: #666;
-                margin-top: 5px;
+                color: #999;
+                margin-top: 6px;
+                font-weight: 300;
+                line-height: 1.5;
             }}
             .error-message {{
                 font-size: 12px;
-                color: #d32f2f;
-                margin-top: 5px;
+                color: #c85a5a;
+                margin-top: 6px;
+                font-weight: 400;
                 display: none;
             }}
             .error-message.show {{
                 display: block;
             }}
-            button {{
-                background-color: #007bff;
+            .primary-button {{
+                background: linear-gradient(135deg, #ff8c42 0%, #ff7a2e 100%);
                 color: white;
-                padding: 10px 20px;
+                padding: 16px 32px;
                 border: none;
-                border-radius: 4px;
+                border-radius: 12px;
                 cursor: pointer;
                 font-size: 16px;
+                font-weight: 500;
+                font-family: 'Poppins', sans-serif;
+                box-shadow: 0 4px 20px rgba(255, 140, 66, 0.35);
+                transition: all 0.2s ease;
+                width: 100%;
+                margin-top: 0;
             }}
-            button:hover {{
-                background-color: #0056b3;
+            .primary-button:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 6px 24px rgba(255, 140, 66, 0.45);
+                background: linear-gradient(135deg, #ff9642 0%, #ff8a3e 100%);
+            }}
+            .primary-button:active {{
+                transform: translateY(0);
             }}
             .build-footer {{
-                font-size: 10px;
+                font-size: 11px;
                 color: #999;
                 text-align: center;
-                margin-top: 40px;
-                padding-top: 20px;
-                border-top: 1px solid #eee;
+                margin-top: 48px;
+                padding-top: 24px;
+                font-weight: 300;
             }}
         </style>
     </head>
     <body>
-        <h1>Alba Labs</h1>
-        <form method="post" action="/assess">
-            <div class="form-group">
-                <label for="course">Course:</label>
-                <div class="autocomplete-container">
-                    <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
-                    <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
-                </div>
-                <div class="help-text">Try: Trent Park, Richmond Park, Dukes Meadows</div>
-                <div id="course-error" class="error-message">Please select a course</div>
+        <div class="container">
+            <div class="form-card">
+                <h2 class="form-heading">Check playability</h2>
+                <form method="post" action="/assess">
+                    <div class="form-group">
+                        <label for="course">Course</label>
+                        <div class="autocomplete-container">
+                            <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
+                            <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
+                        </div>
+                        <div class="help-text">Try: Trent Park, Richmond Park, Dukes Meadows</div>
+                        <div id="course-error" class="error-message">Please select a course</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="handicap">Handicap</label>
+                        <input type="number" id="handicap" name="handicap" min="0" max="54" value="25" required>
+                        <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="day">Day</label>
+                        <select id="day" name="day" required>
+                            <option value="Today">Today</option>
+                            <option value="Tomorrow">Tomorrow</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="time_of_day">Time of day</label>
+                        <select id="time_of_day" name="time_of_day" required>
+                            <option value="Morning">Morning</option>
+                            <option value="Midday">Midday</option>
+                            <option value="Afternoon">Afternoon</option>
+                            <option value="Evening">Evening</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="primary-button">Check playability</button>
+                </form>
             </div>
-            
-            <div class="form-group">
-                <label for="handicap">Handicap:</label>
-                <input type="number" id="handicap" name="handicap" min="0" max="54" value="25" required>
-                <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
-            </div>
-            
-            <div class="form-group">
-                <label for="day">Day:</label>
-                <select id="day" name="day" required>
-                    <option value="Today">Today</option>
-                    <option value="Tomorrow">Tomorrow</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label for="time_of_day">Time of day:</label>
-                <select id="time_of_day" name="time_of_day" required>
-                    <option value="Morning">Morning</option>
-                    <option value="Midday">Midday</option>
-                    <option value="Afternoon">Afternoon</option>
-                    <option value="Evening">Evening</option>
-                </select>
-            </div>
-            
-            <button type="submit">Submit</button>
-        </form>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
         <script>
             (function() {{
@@ -1464,6 +1669,9 @@ async def read_root():
                 }});
             }})();
         </script>
+            </div>
+        </div>
+        <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
     </body>
     </html>
     """
@@ -1543,6 +1751,16 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         play_recommendation, time_of_day, busyness_rating, weather_rating, handicap_suitability
     )
     
+    # Generate why bullets and what to do sections
+    why_bullets = generate_why_bullets(
+        play_recommendation, weather_rating, ground_condition, busyness_rating, 
+        handicap_suitability, daylight_label
+    )
+    what_to_do = generate_what_to_do(
+        play_recommendation, weather_rating, busyness_rating, handicap_suitability,
+        daylight_label, recommended_holes, time_of_day, day
+    )
+    
     # Convert price_tier to price_label
     price_tier_raw = course_data["price_tier"] if course_data else "££"
     price_label = get_price_label(price_tier_raw)
@@ -1593,18 +1811,18 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # 1. Weather rating
     weather_rating_html = f"""
         <div class="result-item">
-            <div class="result-label">Weather Rating:</div>
+            <div class="result-label">Weather Rating</div>
             <div class="result-value">{weather_rating}</div>
         </div>
         <div class="result-item">
-            <div class="result-label">Ground:</div>
+            <div class="result-label">Ground</div>
             <div class="result-value">{ground_condition}</div>
         </div>
     """
     if tomorrow_forecast:
         weather_rating_html += f"""
         <div class="result-item">
-            <div class="result-label">Tomorrow Forecast:</div>
+            <div class="result-label">Tomorrow Forecast</div>
             <div class="result-value">{tomorrow_forecast}</div>
         </div>
         """
@@ -1612,7 +1830,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # 2. Busyness rating
     busyness_html = f"""
         <div class="result-item">
-            <div class="result-label">Busyness Rating:</div>
+            <div class="result-label">Busyness Rating</div>
             <div class="result-value">{busyness_rating}</div>
             <div class="help-text">Busyness estimate (not live tee times)</div>
         </div>
@@ -1621,7 +1839,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # 3. Handicap suitability
     handicap_html = f"""
         <div class="result-item">
-            <div class="result-label">Handicap Suitability:</div>
+            <div class="result-label">Handicap Suitability</div>
             <div class="result-value">{handicap_suitability}</div>
         </div>
     """
@@ -1629,30 +1847,39 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # 3.5. Daylight feasibility
     daylight_html = f"""
         <div class="result-item">
-            <div class="result-label">Recommended Holes:</div>
+            <div class="result-label">Recommended Holes</div>
             <div class="result-value">{recommended_holes} holes</div>
         </div>
         <div class="result-item">
-            <div class="result-label">Daylight:</div>
+            <div class="result-label">Daylight</div>
             <div class="result-value">{daylight_label}</div>
         </div>
         <div class="result-item">
-            <div class="result-label">Timing:</div>
+            <div class="result-label">Timing</div>
             <div class="result-value">Estimated finish: {finish_time_estimate}, Sunset: {sunset_time}</div>
         </div>
     """
     
-    # 4. Price tier
-    price_tier_display = course_data["price_tier"] if course_data else "££"
+    # 4. Price tier - use descriptive label instead of symbols
+    price_tier_raw = course_data["price_tier"] if course_data else "££"
+    price_label_display = get_price_label(price_tier_raw)
     price_html = f"""
         <div class="result-item">
-            <div class="result-label">Price Tier:</div>
-            <div class="result-value">{price_tier_display}</div>
+            <div class="result-label">Price Tier</div>
+            <div class="result-value">{price_label_display}</div>
             <div class="help-text">Typical estimate</div>
         </div>
     """
     
-    # 5. Explanation paragraph
+    # Convert play_recommendation to user-friendly verdict
+    if play_recommendation == "Play":
+        verdict_text = "Worth playing"
+        verdict_color = "#2c2c2c"
+    else:
+        verdict_text = "Not ideal today"
+        verdict_color = "#666"
+    
+    # 5. Explanation paragraph - break into sentences for better scanability
     # Determine mode badge text based on llm_effective_enabled
     if llm_effective_enabled:
         if summary_mode == "LLM":
@@ -1662,26 +1889,32 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     else:
         mode_badge_text = "Mode: Deterministic"
     
+    # Split summary into sentences for better readability
+    summary_sentences = [s.strip() for s in final_summary.split('.') if s.strip()]
+    summary_html_content = '<br><br>'.join([f'<p style="margin: 0;">{sentence}.</p>' for sentence in summary_sentences])
+    
     explanation_html = f"""
         <div class="result-item">
-            <div class="result-label">Summary: <span class="mode-badge">{mode_badge_text}</span></div>
-            <div class="result-value">{final_summary}</div>
+            <div class="result-label">Summary<span class="mode-badge">{mode_badge_text}</span></div>
+            <div class="result-value">{summary_html_content}</div>
         </div>
     """
     
-    # 6. Play or Don't play
-    play_html = f"""
-        <div class="result-item" style="background-color: {'#d4edda' if play_recommendation == 'Play' else '#f8d7da'};">
-            <div class="result-label" style="font-size: 18px;">Recommendation:</div>
-            <div class="result-value" style="font-size: 20px; font-weight: bold;">{play_recommendation}</div>
-        </div>
-    """
-    
-    # 7. Added action
-    action_html = f"""
+    # 6. Why section with 3 bullets
+    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets]) + '</ul>'
+    why_html = f"""
         <div class="result-item">
-            <div class="result-label">Suggestion:</div>
-            <div class="result-value">{added_action}</div>
+            <div class="result-label">Why</div>
+            <div class="result-value">{why_bullets_html}</div>
+        </div>
+    """
+    
+    # 7. What to do instead / What to expect
+    what_section_title = "What to expect" if play_recommendation == "Play" else "What to do instead"
+    what_html = f"""
+        <div class="result-item">
+            <div class="result-label">{what_section_title}</div>
+            <div class="result-value">{what_to_do}</div>
         </div>
     """
     
@@ -1690,85 +1923,162 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     <html>
     <head>
         <title>Assessment Results - Alba Labs</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
         <style>
-            body {{
-                font-family: Arial, sans-serif;
-                max-width: 700px;
-                margin: 50px auto;
-                padding: 20px;
-                line-height: 1.6;
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
             }}
-            h1 {{
-                color: #333;
+            body {{
+                font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: linear-gradient(135deg, #f5e6d3 0%, #fae8d4 50%, #f5e6d3 100%);
+                min-height: 100vh;
+                padding: 60px 20px;
+                line-height: 1.7;
+                color: #3d3d3d;
+            }}
+            .container {{
+                max-width: 720px;
+                margin: 0 auto;
+            }}
+            .verdict-heading {{
+                color: #2c2c2c;
+                font-weight: 400;
+                font-size: 42px;
+                margin-bottom: 40px;
+                letter-spacing: -0.8px;
+                text-align: center;
+                line-height: 1.2;
+            }}
+            .course-name {{
+                text-align: center;
+                font-size: 18px;
+                color: #666;
+                margin-bottom: 48px;
+                font-weight: 400;
+            }}
+            .supporting-content {{
+                margin-top: 32px;
             }}
             .result-item {{
-                margin-bottom: 15px;
-                padding: 15px;
-                background-color: #f5f5f5;
-                border-radius: 4px;
+                margin-bottom: 16px;
+                padding: 20px 24px;
+                background: rgba(255, 255, 255, 0.85);
+                backdrop-filter: blur(10px);
+                border-radius: 16px;
+                box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }}
+            .result-item:hover {{
+                transform: translateY(-1px);
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
             }}
             .result-label {{
-                font-weight: bold;
-                color: #555;
-                margin-bottom: 5px;
+                font-weight: 500;
+                color: #5a5a5a;
+                margin-bottom: 8px;
+                font-size: 13px;
+                letter-spacing: 0.3px;
+                text-transform: uppercase;
             }}
             .result-value {{
-                color: #333;
+                color: #2c2c2c;
+                font-size: 15px;
+                font-weight: 400;
+                line-height: 1.6;
+            }}
+            .result-value p {{
+                margin-bottom: 12px;
+            }}
+            .result-value p:last-child {{
+                margin-bottom: 0;
+            }}
+            .why-bullets {{
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }}
+            .why-bullets li {{
+                padding: 8px 0;
+                padding-left: 24px;
+                position: relative;
+                line-height: 1.6;
+            }}
+            .why-bullets li:before {{
+                content: "•";
+                position: absolute;
+                left: 8px;
+                color: #8b6f47;
+                font-size: 18px;
+                line-height: 1.4;
             }}
             .help-text {{
-                font-size: 12px;
-                color: #666;
-                margin-top: 5px;
-                font-style: italic;
+                font-size: 13px;
+                color: #888;
+                margin-top: 8px;
+                font-weight: 300;
+                font-style: normal;
             }}
             .mode-badge {{
                 display: inline-block;
-                font-size: 10px;
-                padding: 2px 6px;
-                background-color: #e9ecef;
-                border: 1px solid #ced4da;
-                border-radius: 3px;
-                color: #495057;
-                font-weight: normal;
-                margin-left: 8px;
+                font-size: 11px;
+                padding: 4px 10px;
+                background: rgba(212, 165, 116, 0.15);
+                border-radius: 8px;
+                color: #8b6f47;
+                font-weight: 500;
+                margin-left: 10px;
                 font-style: normal;
+                text-transform: none;
+                letter-spacing: 0;
             }}
-            a {{
+            .back-link {{
                 display: inline-block;
-                margin-top: 20px;
-                color: #007bff;
+                margin-top: 32px;
+                color: #8b6f47;
                 text-decoration: none;
+                font-weight: 500;
+                font-size: 15px;
+                transition: color 0.2s ease;
             }}
-            a:hover {{
-                text-decoration: underline;
+            .back-link:hover {{
+                color: #6b5435;
             }}
         </style>
     </head>
     <body>
-        <h1>Assessment Results</h1>
-        
-        <div class="result-item">
-            <div class="result-label">Course:</div>
-            <div class="result-value">{course}</div>
+        <div class="container">
+            <h1 class="verdict-heading" style="color: {verdict_color};">{verdict_text}</h1>
+            <div class="course-name">{course}</div>
+            
+            <div class="supporting-content">
+                {why_html}
+                
+                {what_html}
+                
+                {explanation_html}
+                
+                <div class="result-item">
+                    <div class="result-label">Course</div>
+                    <div class="result-value">{course}</div>
+                </div>
+                
+                {weather_rating_html}
+                
+                {busyness_html}
+                
+                {handicap_html}
+                
+                {daylight_html}
+                
+                {price_html}
+            </div>
+            
+            <a href="/" class="back-link">← Back</a>
         </div>
-        
-        {weather_rating_html}
-        
-        {busyness_html}
-        
-        {handicap_html}
-        
-        {daylight_html}
-        
-        {price_html}
-        
-        {explanation_html}
-        
-        {play_html}
-        
-        {action_html}
-        
-        <a href="/">Back</a>
     </body>
     </html>
     """
