@@ -519,42 +519,45 @@ async def generate_explanation(assessment_data, force_llm=False):
     Generate explanation paragraph. Uses LLM if enabled and available, otherwise uses deterministic version.
     
     assessment_data: dict containing all required fields for structured LLM input
-    force_llm: if True, force LLM usage (if API key available)
+    force_llm: if True, indicates llm=1 query parameter was passed
     """
-    # Check if LLM should be used
-    use_llm = False
-    if force_llm:
-        # Force LLM if API key is available
-        if openai_client:
-            use_llm = True
-        else:
-            # Return special message if LLM requested but unavailable
-            return "LLM summary unavailable on this deployment."
-    elif LLM_SUMMARY_ENABLED and openai_client:
-        use_llm = True
+    # LLM should run if (query llm == 1) OR (env LLM_SUMMARY == true)
+    # But LLM must never run if OPENAI_API_KEY is missing
+    use_llm = (force_llm or LLM_SUMMARY_ENABLED) and bool(openai_client)
     
     if use_llm:
-        return await generate_explanation_llm(assessment_data)
-    else:
-        return generate_explanation_deterministic(
-            assessment_data["weather_rating"],
-            assessment_data["ground_rating"],
-            assessment_data["busyness_rating"],
-            assessment_data["suitability_rating"],
-            assessment_data["price_tier"],
-            None  # tomorrow_forecast not needed for deterministic
-        )
+        # Try LLM, fall back silently to deterministic on any error
+        try:
+            return await generate_explanation_llm(assessment_data)
+        except Exception:
+            # Fall back silently to deterministic on any error
+            pass
+    
+    # Use deterministic explanation
+    return generate_explanation_deterministic(
+        assessment_data["weather_rating"],
+        assessment_data["ground_rating"],
+        assessment_data["busyness_rating"],
+        assessment_data["suitability_rating"],
+        assessment_data["price_tier"],
+        None  # tomorrow_forecast not needed for deterministic
+    )
 
 
 @app.get("/debug/env")
 async def debug_env() -> Dict[str, Any]:
     """
     Debug endpoint to check environment variables.
-    Returns JSON with OpenAI API key status and LLM_SUMMARY flag value.
+    Returns JSON with OpenAI API key status, LLM_SUMMARY flag value, and effective LLM enabled status.
     """
+    # Calculate effective LLM enabled status (matches runtime decision when llm=1 is passed)
+    # When llm=1 is passed, LLM runs if OPENAI_API_KEY exists (regardless of LLM_SUMMARY env var)
+    llm_effective_enabled = bool(OPENAI_API_KEY)
+    
     return {
         "has_openai_key": bool(OPENAI_API_KEY),
-        "llm_summary_flag": os.getenv("LLM_SUMMARY", "")
+        "llm_summary_flag": os.getenv("LLM_SUMMARY", ""),
+        "llm_effective_enabled": llm_effective_enabled
     }
 
 
