@@ -63,3 +63,7 @@ htmlcov/
 overrides.json
 courses_enriched.json
 
+# SSH keys
+*.pub
+ssh-keygen*
+
