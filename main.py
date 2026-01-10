@@ -540,8 +540,9 @@ async def generate_explanation(assessment_data, force_llm=False) -> Tuple[str, s
         # Try LLM, fall back silently to deterministic on any error
         try:
             explanation = await generate_explanation_llm(assessment_data)
-            # LLM succeeded
-            return explanation, "LLM"
+            # LLM succeeded - append [LLM] marker for visual confirmation
+            explanation_with_marker = f"{explanation} [LLM]"
+            return explanation_with_marker, "LLM"
         except Exception as e:
             # Log the exception message
             logger.error(f"OpenAI API call failed: {str(e)}")
@@ -783,6 +784,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     explanation, summary_mode = await generate_explanation(assessment_data, force_llm=force_llm)
     
+    # Check if LLM was effectively enabled (attempted)
+    llm_effective_enabled = (force_llm or LLM_SUMMARY_ENABLED) and bool(openai_client)
+    
     # Build HTML sections in exact order specified
     # 1. Weather rating
     weather_rating_html = f"""
@@ -831,10 +835,19 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     """
     
     # 5. Explanation paragraph
-    summary_mode_text = f"Summary mode: {summary_mode}"
-    explanation_html = f"""
+    # Only show summary mode line when llm_effective_enabled is true
+    if llm_effective_enabled:
+        summary_mode_text = f"Summary mode: {summary_mode}"
+        explanation_html = f"""
         <div class="result-item">
             <div class="summary-mode">{summary_mode_text}</div>
+            <div class="result-label">Summary:</div>
+            <div class="result-value">{explanation}</div>
+        </div>
+    """
+    else:
+        explanation_html = f"""
+        <div class="result-item">
             <div class="result-label">Summary:</div>
             <div class="result-value">{explanation}</div>
         </div>
