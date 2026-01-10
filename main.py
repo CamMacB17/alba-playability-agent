@@ -1310,41 +1310,62 @@ async def read_root():
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
+            :root {{
+                --alba-cream: #FFF7E0;
+                --alba-yellow: #FBB924;
+                --alba-orange: #F78222;
+                --alba-red: #E23642;
+                --alba-offblack: #2C2C2F;
+                --alba-black: #000000;
+                --alba-green: #4A9B5A;
+            }}
             * {{
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
             }}
-            html, body {{
+            html {{
                 height: auto;
+                margin: 0;
+                padding: 0;
+                background: var(--alba-offblack);
             }}
             body {{
+                height: auto;
+                margin: 0;
+                padding: 0;
                 font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                background: #2C2C2F;
-                padding: 24px 16px;
+                background: var(--alba-offblack);
                 line-height: 1.6;
-                color: #FFF7E0;
+                color: var(--alba-cream);
             }}
             .container {{
-                max-width: 720px;
+                max-width: 1100px;
+                width: min(1100px, calc(100vw - 48px));
                 margin: 0 auto;
+                padding: 24px;
+            }}
+            @media (max-width: 640px) {{
+                .container {{
+                    padding: 16px;
+                }}
             }}
             .form-card {{
                 background: #303035;
                 border-radius: 12px;
-                padding: 24px 20px;
+                padding: 20px;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
             }}
             .form-header {{
-                margin-bottom: 20px;
+                margin-bottom: 16px;
                 text-align: center;
             }}
             .form-title {{
-                color: #FFF7E0;
+                color: var(--alba-cream);
                 font-weight: 500;
                 font-size: 20px;
-                margin-bottom: 6px;
+                margin-bottom: 4px;
                 letter-spacing: -0.2px;
             }}
             .form-subtitle {{
@@ -1364,11 +1385,26 @@ async def read_root():
             form {{
                 margin-top: 0;
             }}
-            .form-group {{
-                margin-bottom: 16px;
+            .form-grid {{
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 16px;
             }}
-            .form-group:last-of-type {{
-                margin-bottom: 20px;
+            @media (min-width: 900px) {{
+                .form-grid {{
+                    grid-template-columns: 1fr 1fr;
+                }}
+            }}
+            .form-group {{
+                margin-bottom: 0;
+            }}
+            .form-group-full {{
+                grid-column: 1 / -1;
+            }}
+            @media (min-width: 900px) {{
+                .form-group-full {{
+                    grid-column: 1 / -1;
+                }}
             }}
             .form-row {{
                 display: grid;
@@ -1385,7 +1421,7 @@ async def read_root():
                 margin-bottom: 6px;
                 font-weight: 500;
                 font-size: 13px;
-                color: #FFF7E0;
+                color: var(--alba-cream);
                 letter-spacing: 0.1px;
             }}
             select, input[type="number"], input[type="text"] {{
@@ -1395,13 +1431,13 @@ async def read_root():
                 font-family: 'Poppins', sans-serif;
                 border: 1px solid rgba(255, 255, 255, 0.15);
                 border-radius: 8px;
-                background: #2C2C2F;
+                background: var(--alba-offblack);
                 transition: all 0.2s ease;
-                color: #FFF7E0;
+                color: var(--alba-cream);
             }}
             select:focus, input[type="number"]:focus, input[type="text"]:focus {{
                 outline: none;
-                border-color: #F78222;
+                border-color: var(--alba-orange);
                 box-shadow: 0 0 0 3px rgba(247, 130, 34, 0.2);
             }}
             .course-input-wrapper {{
@@ -1416,16 +1452,16 @@ async def read_root():
             .course-chips {{
                 display: flex;
                 flex-wrap: wrap;
-                gap: 6px;
-                margin-top: 8px;
+                gap: 4px;
+                margin-top: 6px;
             }}
             .course-chip {{
                 display: inline-block;
-                padding: 4px 10px;
+                padding: 3px 8px;
                 background: rgba(255, 255, 255, 0.05);
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
-                font-size: 11px;
+                border-radius: 10px;
+                font-size: 10px;
                 color: rgba(255, 247, 224, 0.7);
                 cursor: pointer;
                 transition: all 0.2s ease;
@@ -1433,8 +1469,8 @@ async def read_root():
             }}
             .course-chip:hover {{
                 background: rgba(247, 130, 34, 0.2);
-                border-color: #F78222;
-                color: #FFF7E0;
+                border-color: var(--alba-orange);
+                color: var(--alba-cream);
             }}
             .autocomplete-container {{
                 position: relative;
@@ -1461,7 +1497,7 @@ async def read_root():
                 cursor: pointer;
                 transition: background-color 0.15s ease;
                 font-size: 15px;
-                color: #FFF7E0;
+                color: var(--alba-cream);
             }}
             .autocomplete-suggestion:first-child {{
                 border-radius: 8px 8px 0 0;
@@ -1488,7 +1524,7 @@ async def read_root():
             }}
             .error-message {{
                 font-size: 12px;
-                color: #E23642;
+                color: var(--alba-red);
                 margin-top: 6px;
                 font-weight: 400;
                 display: none;
@@ -1497,8 +1533,8 @@ async def read_root():
                 display: block;
             }}
             .primary-button {{
-                background: #F78222;
-                color: #000000;
+                background: var(--alba-orange);
+                color: var(--alba-black);
                 padding: 12px 24px;
                 border: none;
                 border-radius: 8px;
@@ -1510,14 +1546,14 @@ async def read_root():
                 width: 100%;
                 margin-top: 0;
             }}
-            @media (min-width: 641px) {{
+            @media (min-width: 900px) {{
                 .primary-button {{
                     width: auto;
                     min-width: 180px;
                 }}
             }}
             .primary-button:hover {{
-                background: #FBB924;
+                background: var(--alba-yellow);
                 transform: translateY(-1px);
             }}
             .primary-button:active {{
@@ -1526,14 +1562,15 @@ async def read_root():
             .button-wrapper {{
                 display: flex;
                 justify-content: center;
-                margin-top: 4px;
+                margin-top: 8px;
             }}
             .build-footer {{
-                font-size: 11px;
-                color: rgba(255, 247, 224, 0.4);
+                display: none;
+                font-size: 10px;
+                color: rgba(255, 247, 224, 0.3);
                 text-align: center;
-                margin-top: 24px;
-                padding-top: 16px;
+                margin-top: 8px;
+                padding-top: 8px;
                 font-weight: 300;
             }}
         </style>
@@ -1546,55 +1583,58 @@ async def read_root():
                     <p class="form-subtitle">A quick read on weather, ground, and how the round might feel.</p>
                 </div>
                 <form method="post" action="/assess">
-                    <div class="form-group">
-                        <label for="course">Course</label>
-                        <div class="course-input-wrapper">
-                            <div class="autocomplete-container">
-                                <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
-                                <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
-                            </div>
-                            <div class="course-helper">Start typing a course name</div>
-                            <div class="course-chips">
-                                <span class="course-chip" data-course="Trent Park Golf Club">Trent Park</span>
-                                <span class="course-chip" data-course="Richmond Park Golf Course">Richmond Park</span>
-                                <span class="course-chip" data-course="Dukes Meadows Golf Course">Dukes Meadows</span>
-                            </div>
-                        </div>
-                        <div id="course-error" class="error-message">Please select a course</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="handicap">Handicap</label>
-                        <input type="number" id="handicap" name="handicap" min="0" max="54" value="25" required>
-                        <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
-                    </div>
-                    
-                    <div class="form-row">
+                    <div class="form-grid">
                         <div class="form-group">
-                            <label for="day">Day</label>
-                            <select id="day" name="day" required>
-                                <option value="Today">Today</option>
-                                <option value="Tomorrow">Tomorrow</option>
-                            </select>
+                            <label for="course">Course</label>
+                            <div class="course-input-wrapper">
+                                <div class="autocomplete-container">
+                                    <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
+                                    <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
+                                </div>
+                                <div class="course-helper">Start typing a course name</div>
+                                <div class="course-chips">
+                                    <span class="course-chip" data-course="Trent Park Golf Club">Trent Park</span>
+                                    <span class="course-chip" data-course="Richmond Park Golf Course">Richmond Park</span>
+                                    <span class="course-chip" data-course="Dukes Meadows Golf Course">Dukes Meadows</span>
+                                </div>
+                            </div>
+                            <div id="course-error" class="error-message">Please select a course</div>
                         </div>
                         
                         <div class="form-group">
-                            <label for="time_of_day">Time of day</label>
-                            <select id="time_of_day" name="time_of_day" required>
-                                <option value="Morning">Morning</option>
-                                <option value="Midday">Midday</option>
-                                <option value="Afternoon">Afternoon</option>
-                                <option value="Evening">Evening</option>
-                            </select>
+                            <label for="handicap">Handicap</label>
+                            <input type="number" id="handicap" name="handicap" min="0" max="54" value="25" required>
+                            <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
+                            
+                            <div class="form-row" style="margin-top: 16px;">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label for="day">Day</label>
+                                    <select id="day" name="day" required>
+                                        <option value="Today">Today</option>
+                                        <option value="Tomorrow">Tomorrow</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label for="time_of_day">Time of day</label>
+                                    <select id="time_of_day" name="time_of_day" required>
+                                        <option value="Morning">Morning</option>
+                                        <option value="Midday">Midday</option>
+                                        <option value="Afternoon">Afternoon</option>
+                                        <option value="Evening">Evening</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div class="button-wrapper">
-                        <button type="submit" class="primary-button">Check playability</button>
+                        
+                        <div class="form-group form-group-full">
+                            <div class="button-wrapper">
+                                <button type="submit" class="primary-button">Check playability</button>
+                            </div>
+                        </div>
                     </div>
                 </form>
             </div>
-        <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
         <script>
             (function() {{
                 const courseInput = document.getElementById('course');
@@ -1967,34 +2007,16 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     # Convert play_recommendation to user-friendly verdict
     if play_recommendation == "Play":
-        verdict_text = "Worth playing"
-        verdict_color = "#FFF7E0"
+        verdict_title = "Good to play"
     else:
-        verdict_text = "Not ideal today"
-        verdict_color = "#FFF7E0"
+        verdict_title = "Not ideal today"
     
-    # 5. Explanation paragraph - break into sentences for better scanability
-    # Determine mode badge text based on llm_effective_enabled
-    if llm_effective_enabled:
-        if summary_mode == "LLM":
-            mode_badge_text = "Mode: LLM"
-        else:
-            mode_badge_text = "Mode: Deterministic (LLM failed)"
-    else:
-        mode_badge_text = "Mode: Deterministic"
+    # Extract first sentence from summary for banner helper text
+    summary_first_sentence = final_summary.split('.')[0].strip() if final_summary else ""
+    if summary_first_sentence and not summary_first_sentence.endswith('.'):
+        summary_first_sentence += "."
     
-    # Split summary into sentences for better readability
-    summary_sentences = [s.strip() for s in final_summary.split('.') if s.strip()]
-    summary_html_content = '<br><br>'.join([f'<p style="margin: 0;">{sentence}.</p>' for sentence in summary_sentences])
-    
-    explanation_html = f"""
-        <div class="result-item">
-            <div class="result-label">Summary<span class="mode-badge">{mode_badge_text}</span></div>
-            <div class="result-value">{summary_html_content}</div>
-        </div>
-    """
-    
-    # 6. Why section with 3 bullets - dedupe if needed
+    # Why section with 3 bullets - dedupe if needed
     unique_bullets = []
     seen_bullets = set()
     for bullet in why_bullets:
@@ -2015,51 +2037,58 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             break
     
     why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in unique_bullets[:3]]) + '</ul>'
-    why_html = f"""
-        <div class="result-item">
-            <div class="result-label">Why</div>
-            <div class="result-value">{why_bullets_html}</div>
-        </div>
-    """
     
-    # 7. What to do instead / What to expect
+    # What to do instead - convert to bullets if it contains multiple sentences
+    what_sentences = [s.strip() for s in what_to_do.split('.') if s.strip()]
+    if len(what_sentences) > 1:
+        what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{sentence}.</li>' for sentence in what_sentences]) + '</ul>'
+    else:
+        what_bullets_html = f'<p>{what_to_do}</p>'
+    
+    # What section title
     what_section_title = "What to expect" if play_recommendation == "Play" else "What to do instead"
-    what_html = f"""
-        <div class="result-item">
-            <div class="result-label">{what_section_title}</div>
-            <div class="result-value">{what_to_do}</div>
-        </div>
-    """
     
-    # Verdict banner
-    verdict_banner_bg = "#4A9B5A" if play_recommendation == "Play" else "#E23642"  # Modern green for Play, red for Don't play
+    # Verdict banner with course name and helper text
+    verdict_banner_class = "play" if play_recommendation == "Play" else "dont-play"
     verdict_banner_html = f"""
-        <div class="verdict-banner" style="background: {verdict_banner_bg};">
-            <div class="verdict-banner-text">{verdict_text}</div>
+        <div class="verdict-banner {verdict_banner_class}">
+            <div class="verdict-title">{verdict_title}</div>
+            <div class="verdict-course">{course}</div>
+            <div class="verdict-helper">{summary_first_sentence}</div>
         </div>
     """
     
-    # Compact header with course name and day/time
-    compact_header_html = f"""
-        <div class="compact-header">
-            <div class="course-name-compact">{course}</div>
-            <div class="day-time-compact">{day} · {time_of_day}</div>
-        </div>
-    """
-    
-    # Debug info (only shown if debug_mode is True)
-    debug_info_html = ""
-    if debug_mode:
-        debug_info_html = f"""
-        <div class="result-item debug-info">
-            <div class="result-label">Debug</div>
-            <div class="result-value">
-                llm_raw: {llm_raw if llm_raw is not None else 'None'}<br>
-                llm_force: {force_llm}<br>
-                effective: {llm_effective_enabled}
+    # Details section - collapsible
+    details_html = f"""
+        <details class="details-card">
+            <summary class="details-summary">Show details</summary>
+            <div class="details-grid">
+                <div class="detail-item">
+                    <div class="detail-label">Weather</div>
+                    <div class="detail-value">{weather_rating}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Ground</div>
+                    <div class="detail-value">{ground_condition}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Busyness</div>
+                    <div class="detail-value">{busyness_rating}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Suitability</div>
+                    <div class="detail-value">{handicap_suitability}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Price</div>
+                    <div class="detail-value">{price_label_display}</div>
+                </div>
             </div>
-        </div>
-        """
+        </details>
+    """
+    
+    # Debug info (only shown if debug_mode is True) - hidden from UI
+    debug_info_html = ""
     
     return f"""
     <!DOCTYPE html>
@@ -2071,113 +2100,130 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
+            :root {{
+                --alba-cream: #FFF7E0;
+                --alba-yellow: #FBB924;
+                --alba-orange: #F78222;
+                --alba-red: #E23642;
+                --alba-offblack: #2C2C2F;
+                --alba-black: #000000;
+                --alba-green: #1F8A4C;
+            }}
             * {{
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
             }}
-            html, body {{
+            html {{
                 height: auto;
+                margin: 0;
+                padding: 0;
+                background: var(--alba-offblack);
             }}
             body {{
+                height: auto;
+                margin: 0;
+                padding: 0;
                 font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                background: #2C2C2F;
-                padding: 24px 16px;
+                background: var(--alba-offblack);
                 line-height: 1.6;
-                color: #FFF7E0;
+                color: var(--alba-cream);
             }}
             .container {{
-                max-width: 720px;
+                max-width: 1100px;
+                width: min(1100px, calc(100vw - 48px));
                 margin: 0 auto;
+                padding: 24px;
+            }}
+            @media (max-width: 640px) {{
+                .container {{
+                    padding: 16px;
+                }}
             }}
             .verdict-banner {{
                 border-radius: 8px;
-                padding: 14px 20px;
+                padding: 20px;
                 margin-bottom: 16px;
                 text-align: center;
             }}
-            .verdict-banner-text {{
-                color: #FFF7E0;
+            .verdict-banner.play {{
+                background: var(--alba-green);
+            }}
+            .verdict-banner.dont-play {{
+                background: var(--alba-red);
+            }}
+            .verdict-title {{
+                color: var(--alba-cream);
+                font-weight: 600;
+                font-size: 24px;
+                letter-spacing: -0.3px;
+                margin-bottom: 8px;
+            }}
+            .verdict-course {{
+                color: var(--alba-cream);
                 font-weight: 500;
-                font-size: 18px;
-                letter-spacing: -0.2px;
-            }}
-            @media (max-width: 640px) {{
-                .verdict-banner-text {{
-                    font-size: 16px;
-                }}
-            }}
-            .compact-header {{
-                margin-bottom: 20px;
-                text-align: center;
-            }}
-            .course-name-compact {{
                 font-size: 16px;
-                color: #FFF7E0;
-                font-weight: 500;
-                margin-bottom: 4px;
+                margin-bottom: 8px;
             }}
-            .day-time-compact {{
+            .verdict-helper {{
+                color: rgba(255, 247, 224, 0.9);
+                font-weight: 300;
                 font-size: 13px;
-                color: rgba(255, 247, 224, 0.6);
-                font-weight: 400;
-            }}
-            .supporting-content {{
-                margin-top: 16px;
-            }}
-            .why-what-grid {{
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 12px;
-                margin-bottom: 12px;
+                line-height: 1.5;
             }}
             @media (max-width: 640px) {{
-                .why-what-grid {{
-                    grid-template-columns: 1fr;
+                .verdict-title {{
+                    font-size: 20px;
+                }}
+                .verdict-course {{
+                    font-size: 14px;
+                }}
+                .verdict-helper {{
+                    font-size: 12px;
                 }}
             }}
-            .debug-info {{
-                display: none;
+            .cards-grid {{
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 16px;
+                margin-bottom: 16px;
             }}
-            .result-item {{
-                margin-bottom: 12px;
-                padding: 16px 20px;
+            @media (min-width: 900px) {{
+                .cards-grid {{
+                    grid-template-columns: 1fr 1fr;
+                }}
+            }}
+            .card {{
+                padding: 18px 20px;
                 background: #303035;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 8px;
                 box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
                 transition: transform 0.2s ease, box-shadow 0.2s ease;
             }}
-            .result-item:hover {{
+            .card:hover {{
                 transform: translateY(-1px);
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             }}
-            .result-label {{
-                font-weight: 500;
-                color: rgba(255, 247, 224, 0.8);
-                margin-bottom: 6px;
-                font-size: 12px;
-                letter-spacing: 0.3px;
-                text-transform: uppercase;
+            .card-title {{
+                font-weight: 600;
+                color: var(--alba-cream);
+                margin-bottom: 12px;
+                font-size: 16px;
+                letter-spacing: -0.2px;
             }}
-            .result-value {{
-                color: #FFF7E0;
+            .card-content {{
+                color: var(--alba-cream);
                 font-size: 15px;
                 font-weight: 400;
                 line-height: 1.6;
             }}
-            .result-value p {{
-                margin-bottom: 10px;
-            }}
-            .result-value p:last-child {{
-                margin-bottom: 0;
-            }}
-            .why-bullets {{
+            .why-bullets, .what-bullets {{
                 list-style: none;
                 padding: 0;
                 margin: 0;
             }}
-            .why-bullets li {{
+            .why-bullets li, .what-bullets li {{
                 padding: 6px 0;
                 padding-left: 20px;
                 position: relative;
@@ -2187,77 +2233,128 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 content: "•";
                 position: absolute;
                 left: 6px;
-                color: #F78222;
+                color: var(--alba-orange);
                 font-size: 16px;
                 line-height: 1.4;
             }}
-            .help-text {{
-                font-size: 12px;
-                color: rgba(255, 247, 224, 0.6);
-                margin-top: 6px;
-                font-weight: 300;
-                font-style: normal;
+            .what-bullets li:before {{
+                content: "•";
+                position: absolute;
+                left: 6px;
+                color: var(--alba-orange);
+                font-size: 16px;
+                line-height: 1.4;
             }}
-            .mode-badge {{
+            .card-content p {{
+                margin: 0;
+            }}
+            .details-card {{
+                grid-column: 1 / -1;
+                padding: 18px 20px;
+                background: #303035;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+            }}
+            .details-summary {{
+                font-weight: 600;
+                color: var(--alba-cream);
+                font-size: 16px;
+                cursor: pointer;
+                list-style: none;
+                letter-spacing: -0.2px;
+            }}
+            .details-summary::-webkit-details-marker {{
+                display: none;
+            }}
+            .details-summary::before {{
+                content: "▶ ";
                 display: inline-block;
-                font-size: 10px;
-                padding: 3px 8px;
-                background: rgba(247, 130, 34, 0.2);
+                margin-right: 8px;
+                transition: transform 0.2s ease;
+            }}
+            .details-card[open] .details-summary::before {{
+                transform: rotate(90deg);
+            }}
+            .details-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 16px;
+                margin-top: 16px;
+            }}
+            .detail-item {{
+                padding: 12px;
+                background: rgba(0, 0, 0, 0.2);
                 border-radius: 6px;
-                color: #F78222;
+            }}
+            .detail-label {{
                 font-weight: 500;
-                margin-left: 8px;
-                font-style: normal;
-                text-transform: none;
-                letter-spacing: 0;
+                color: rgba(255, 247, 224, 0.7);
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 4px;
+            }}
+            .detail-value {{
+                color: var(--alba-cream);
+                font-size: 15px;
+                font-weight: 500;
             }}
             .back-link {{
                 display: inline-block;
-                margin-top: 20px;
-                color: #FBB924;
+                margin-top: 16px;
+                color: var(--alba-yellow);
                 text-decoration: none;
                 font-weight: 500;
                 font-size: 14px;
                 transition: color 0.2s ease;
             }}
             .back-link:hover {{
-                color: #F78222;
+                color: var(--alba-orange);
             }}
         </style>
     </head>
     <body>
         <div class="container">
             {verdict_banner_html}
-            {compact_header_html}
             
-            <div class="supporting-content">
-                <div class="why-what-grid">
-                    {why_html}
-                    {what_html}
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-title">Why</div>
+                    <div class="card-content">
+                        {why_bullets_html}
+                    </div>
                 </div>
                 
-                {explanation_html}
-                
-                {debug_info_html}
-                
-                <div class="result-item">
-                    <div class="result-label">Course</div>
-                    <div class="result-value">{course}</div>
+                <div class="card">
+                    <div class="card-title">{what_section_title}</div>
+                    <div class="card-content">
+                        {what_bullets_html}
+                    </div>
                 </div>
                 
-                {weather_rating_html}
-                
-                {busyness_html}
-                
-                {handicap_html}
-                
-                {daylight_html}
-                
-                {price_html}
+                {details_html}
             </div>
             
             <a href="/" class="back-link">← Back</a>
         </div>
+        <script>
+            (function() {{
+                const detailsCard = document.querySelector('.details-card');
+                if (detailsCard) {{
+                    const summary = detailsCard.querySelector('.details-summary');
+                    if (summary) {{
+                        detailsCard.addEventListener('toggle', function() {{
+                            if (detailsCard.open) {{
+                                summary.textContent = 'Hide details';
+                            }} else {{
+                                summary.textContent = 'Show details';
+                            }}
+                        }});
+                    }}
+                }}
+            }})();
+        </script>
     </body>
     </html>
     """
