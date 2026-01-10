@@ -1333,6 +1333,9 @@ async def read_root():
                 }}
                 
                 function displaySuggestions(results) {{
+                    // Temporary console log for debugging
+                    console.log('Raw API results:', results);
+                    
                     suggestionsContainer.innerHTML = '';
                     currentHighlight = -1;
                     
@@ -1348,7 +1351,13 @@ async def read_root():
                     results.forEach((course, index) => {{
                         const suggestion = document.createElement('div');
                         suggestion.className = 'autocomplete-suggestion';
-                        suggestion.textContent = `${{course.name}} (${{course.area}})`;
+                        
+                        // Render full name and area (only show area in brackets if not empty)
+                        const displayText = course.area && course.area.trim() !== '' 
+                            ? `${{course.name}} (${{course.area}})` 
+                            : course.name;
+                        suggestion.textContent = displayText;
+                        
                         suggestion.dataset.index = index;
                         suggestion.dataset.name = course.name;
                         
@@ -1368,6 +1377,8 @@ async def read_root():
                 }}
                 
                 function selectSuggestion(courseName) {{
+                    // Temporary console log for debugging
+                    console.log('Selected course name written to input:', courseName);
                     courseInput.value = courseName;
                     hideSuggestions();
                 }}
