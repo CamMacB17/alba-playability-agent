@@ -787,22 +787,49 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         play_recommendation, time_of_day, busyness_rating, weather_rating, handicap_suitability
     )
     
-    # Create structured assessment data for LLM
-    assessment_data = {
-        "course_name": course,
-        "day": day,
-        "time_of_day": time_of_day,
-        "handicap": handicap,
-        "weather_rating": weather_rating,
-        "ground_rating": ground_condition,
-        "busyness_rating": busyness_rating,
-        "suitability_rating": handicap_suitability,
-        "price_tier": course_data["price_tier"] if course_data else "££",
-        "verdict": play_recommendation,
-        "next_action": added_action
-    }
+    # Set final_summary to deterministic by default
+    final_summary = generate_explanation_deterministic(
+        weather_rating,
+        ground_condition,
+        busyness_rating,
+        handicap_suitability,
+        course_data["price_tier"] if course_data else "££",
+        tomorrow_forecast
+    )
     
-    explanation, summary_mode = await generate_explanation(assessment_data, force_llm=force_llm, llm_effective_enabled=llm_effective_enabled)
+    # Determine summary_mode based on whether LLM was attempted
+    summary_mode = "Deterministic"
+    
+    # If llm_effective_enabled is true, try to call OpenAI summary function
+    if llm_effective_enabled:
+        # Create structured assessment data for LLM
+        assessment_data = {
+            "course_name": course,
+            "day": day,
+            "time_of_day": time_of_day,
+            "handicap": handicap,
+            "weather_rating": weather_rating,
+            "ground_rating": ground_condition,
+            "busyness_rating": busyness_rating,
+            "suitability_rating": handicap_suitability,
+            "price_tier": course_data["price_tier"] if course_data else "££",
+            "verdict": play_recommendation,
+            "next_action": added_action
+        }
+        
+        # Log before calling OpenAI
+        logger.info("Calling OpenAI summary")
+        
+        try:
+            llm_summary = await generate_explanation_llm(assessment_data)
+            # Append [LLM] marker for visual confirmation
+            final_summary = f"{llm_summary} [LLM]"
+            summary_mode = "LLM"
+            logger.info("OpenAI summary succeeded")
+        except Exception as e:
+            # Log the exception and keep final_summary unchanged (stays as deterministic)
+            logger.error(f"OpenAI summary failed: {str(e)}", exc_info=True)
+            summary_mode = "Deterministic (LLM failed)"
     
     # Build HTML sections in exact order specified
     # 1. Weather rating
@@ -869,7 +896,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <div class="result-item">
             <div class="result-label">Summary: <span class="mode-badge">{mode_badge_text}</span></div>
             <div class="summary-mode">{debug_line}</div>
-            <div class="result-value">{explanation}</div>
+            <div class="result-value">{final_summary}</div>
         </div>
     """
     
