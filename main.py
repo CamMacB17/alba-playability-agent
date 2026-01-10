@@ -2,7 +2,8 @@ import json
 import os
 import asyncio
 import logging
-from datetime import datetime, timedelta
+import subprocess
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Form, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
@@ -14,6 +15,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# Get git commit hash at startup
+def get_git_commit() -> str:
+    """Get the latest git commit hash."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=os.path.dirname(__file__)
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()[:7]  # Return short hash
+    except Exception:
+        pass
+    return "unknown"
+
+# Generate build time at startup
+BUILD_TIME_UTC = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+GIT_COMMIT = get_git_commit()
 
 # Feature flag and API key for OpenAI
 LLM_SUMMARY_ENABLED = os.getenv("LLM_SUMMARY", "false").lower() == "true"
@@ -560,6 +582,18 @@ async def debug_env() -> Dict[str, Any]:
     }
 
 
+@app.get("/debug/version")
+async def debug_version() -> Dict[str, Any]:
+    """
+    Debug endpoint to check version information.
+    Returns JSON with git commit hash and build time.
+    """
+    return {
+        "git_commit": GIT_COMMIT,
+        "build_time_utc": BUILD_TIME_UTC
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     courses = load_courses()
@@ -621,6 +655,14 @@ async def read_root():
             button:hover {{
                 background-color: #0056b3;
             }}
+            .build-footer {{
+                font-size: 10px;
+                color: #999;
+                text-align: center;
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 1px solid #eee;
+            }}
         </style>
     </head>
     <body>
@@ -658,6 +700,7 @@ async def read_root():
             
             <button type="submit">Submit</button>
         </form>
+        <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
     </body>
     </html>
     """
