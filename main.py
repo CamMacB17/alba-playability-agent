@@ -536,16 +536,22 @@ async def generate_explanation(assessment_data, force_llm=False, llm_effective_e
     Generate explanation paragraph. Uses LLM if enabled and available, otherwise uses deterministic version.
     
     assessment_data: dict containing all required fields for structured LLM input
-    force_llm: parsed llm query parameter (boolean)
-    llm_effective_enabled: computed effective LLM enabled status
+    force_llm: parsed llm query parameter (boolean) - when true, forces LLM call regardless of LLM_SUMMARY
+    llm_effective_enabled: computed effective LLM enabled status (for badge display)
     
     Returns: tuple of (explanation_text, summary_mode)
         summary_mode: "LLM", "Deterministic (LLM failed)", or "Deterministic"
     """
-    # LLM should run if llm_effective_enabled is True
-    use_llm = llm_effective_enabled and bool(openai_client)
+    # LLM should run if:
+    # 1. force_llm is true (from query parameter) AND openai_client exists, OR
+    # 2. LLM_SUMMARY_ENABLED is true AND openai_client exists
+    # force_llm takes precedence over LLM_SUMMARY_ENABLED
+    use_llm = bool(openai_client) and (force_llm or LLM_SUMMARY_ENABLED)
     
     if use_llm:
+        # Log that OpenAI call is being executed
+        logger.info("LLM: executing OpenAI call")
+        
         # Try LLM, fall back silently to deterministic on any error
         try:
             explanation = await generate_explanation_llm(assessment_data)
