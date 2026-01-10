@@ -1,21 +1,213 @@
 [
   {
-    "name": "Trent Park Golf Club",
-    "lat": 51.6625,
-    "lon": -0.1233,
+    "name": "Royal Blackheath Golf Club",
+    "lat": 51.4632,
+    "lon": 0.0089,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "SE"
+  },
+  {
+    "name": "Shooters Hill Golf Club",
+    "lat": 51.4689,
+    "lon": 0.0567,
     "popularity_tier": "Medium",
     "difficulty": "Medium",
     "beginner_friendly": "Mixed",
-    "price_tier": "££"
+    "price_tier": "££",
+    "area": "SE"
   },
   {
-    "name": "Red Libbets Golf Club",
-    "lat": 51.4567,
-    "lon": -0.1234,
+    "name": "Eltham Warren Golf Club",
+    "lat": 51.4512,
+    "lon": 0.0456,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SE"
+  },
+  {
+    "name": "Sundridge Park Golf Club",
+    "lat": 51.3789,
+    "lon": 0.0234,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "SE"
+  },
+  {
+    "name": "Dulwich and Sydenham Hill Golf Club",
+    "lat": 51.4321,
+    "lon": -0.0567,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SE"
+  },
+  {
+    "name": "Addington Court Golf Club",
+    "lat": 51.3567,
+    "lon": -0.0234,
     "popularity_tier": "Low",
     "difficulty": "Easy",
     "beginner_friendly": "Yes",
-    "price_tier": "£"
+    "price_tier": "£",
+    "area": "SE"
+  },
+  {
+    "name": "Purley Downs Golf Club",
+    "lat": 51.3345,
+    "lon": -0.1123,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SE"
+  },
+  {
+    "name": "Croham Hurst Golf Club",
+    "lat": 51.3456,
+    "lon": -0.0456,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "SE"
+  },
+  {
+    "name": "West Kent Golf Club",
+    "lat": 51.3123,
+    "lon": 0.0123,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SE"
+  },
+  {
+    "name": "Chislehurst Golf Club",
+    "lat": 51.4234,
+    "lon": 0.0678,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "SE"
+  },
+  {
+    "name": "Richmond Park Golf Course",
+    "lat": 51.4456,
+    "lon": -0.2789,
+    "popularity_tier": "High",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SW"
+  },
+  {
+    "name": "Royal Mid-Surrey Golf Club",
+    "lat": 51.4567,
+    "lon": -0.3012,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "SW"
+  },
+  {
+    "name": "Dukes Meadows Golf Course",
+    "lat": 51.4789,
+    "lon": -0.2678,
+    "popularity_tier": "Medium",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "SW"
+  },
+  {
+    "name": "Fulwell Golf Course",
+    "lat": 51.4456,
+    "lon": -0.3456,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SW"
+  },
+  {
+    "name": "Hampton Court Palace Golf Club",
+    "lat": 51.4012,
+    "lon": -0.3345,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "SW"
+  },
+  {
+    "name": "Strawberry Hill Golf Club",
+    "lat": 51.4345,
+    "lon": -0.3234,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "SW"
+  },
+  {
+    "name": "Coombe Hill Golf Course",
+    "lat": 51.4123,
+    "lon": -0.2567,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SW"
+  },
+  {
+    "name": "Coombe Wood Golf Course",
+    "lat": 51.4012,
+    "lon": -0.2456,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "SW"
+  },
+  {
+    "name": "Malden Golf Club",
+    "lat": 51.3890,
+    "lon": -0.2123,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "SW"
+  },
+  {
+    "name": "Mitcham Golf Club",
+    "lat": 51.4012,
+    "lon": -0.1789,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "SW"
+  },
+  {
+    "name": "Pinner Hill Golf Club",
+    "lat": 51.5890,
+    "lon": -0.3789,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NW"
   },
   {
     "name": "Stanmore Golf Club",
@@ -24,25 +216,187 @@
     "popularity_tier": "High",
     "difficulty": "Hard",
     "beginner_friendly": "No",
-    "price_tier": "£££"
+    "price_tier": "£££",
+    "area": "NW"
   },
   {
-    "name": "Demo Course Alpha",
-    "lat": 51.5074,
-    "lon": -0.1278,
+    "name": "Harrow School Golf Course",
+    "lat": 51.5678,
+    "lon": -0.3345,
     "popularity_tier": "Low",
     "difficulty": "Easy",
     "beginner_friendly": "Yes",
-    "price_tier": "£"
+    "price_tier": "£",
+    "area": "NW"
   },
   {
-    "name": "Demo Course Beta",
-    "lat": 51.5155,
-    "lon": -0.0922,
+    "name": "Grims Dyke Golf Club",
+    "lat": 51.6012,
+    "lon": -0.3456,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NW"
+  },
+  {
+    "name": "Northwood Golf Club",
+    "lat": 51.6123,
+    "lon": -0.4234,
     "popularity_tier": "High",
     "difficulty": "Hard",
     "beginner_friendly": "No",
-    "price_tier": "£££"
+    "price_tier": "£££",
+    "area": "NW"
+  },
+  {
+    "name": "Hendon Golf Club",
+    "lat": 51.5789,
+    "lon": -0.2234,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NW"
+  },
+  {
+    "name": "Mill Hill Golf Club",
+    "lat": 51.6234,
+    "lon": -0.2567,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NW"
+  },
+  {
+    "name": "Muswell Hill Golf Club",
+    "lat": 51.5890,
+    "lon": -0.1456,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "NW"
+  },
+  {
+    "name": "Sudbury Golf Club",
+    "lat": 51.5567,
+    "lon": -0.3123,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NW"
+  },
+  {
+    "name": "West Middlesex Golf Course",
+    "lat": 51.5123,
+    "lon": -0.3456,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "NW"
+  },
+  {
+    "name": "Trent Park Golf Club",
+    "lat": 51.6625,
+    "lon": -0.1233,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NE"
+  },
+  {
+    "name": "Bush Hill Park Golf Club",
+    "lat": 51.6456,
+    "lon": -0.0678,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "NE"
+  },
+  {
+    "name": "Lee Valley Golf Course",
+    "lat": 51.6789,
+    "lon": -0.0234,
+    "popularity_tier": "Medium",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "NE"
+  },
+  {
+    "name": "Enfield Golf Club",
+    "lat": 51.6567,
+    "lon": -0.0789,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NE"
+  },
+  {
+    "name": "Ilford Golf Club",
+    "lat": 51.5678,
+    "lon": 0.0789,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "NE"
+  },
+  {
+    "name": "Wanstead Golf Club",
+    "lat": 51.5789,
+    "lon": 0.0234,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "NE"
+  },
+  {
+    "name": "Woodford Golf Course",
+    "lat": 51.6012,
+    "lon": 0.0123,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NE"
+  },
+  {
+    "name": "The Warren Park Golf Centre",
+    "lat": 51.6234,
+    "lon": 0.0456,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£",
+    "area": "NE"
+  },
+  {
+    "name": "Romford Golf Club",
+    "lat": 51.5890,
+    "lon": 0.1789,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££",
+    "area": "NE"
+  },
+  {
+    "name": "Upminster Golf Club",
+    "lat": 51.5567,
+    "lon": 0.2567,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££",
+    "area": "NE"
   }
 ]
-
