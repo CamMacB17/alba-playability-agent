@@ -3,7 +3,8 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Form, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
+from urllib.parse import urlencode
 import httpx
 
 app = FastAPI()
@@ -647,14 +648,10 @@ async def read_root():
     """
 
 
-@app.post("/assess", response_class=HTMLResponse)
-async def assess(
-    course: str = Form(...),
-    handicap: int = Form(...),
-    day: str = Form(...),
-    time_of_day: str = Form(...),
-    llm: int = Query(0, description="Set to 1 to force LLM summary")
-):
+async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False):
+    """
+    Shared function to calculate ratings and render assessment results.
+    """
     # Find the course to get coordinates and properties
     course_data = find_course_by_name(course)
     
@@ -726,8 +723,6 @@ async def assess(
         "next_action": added_action
     }
     
-    # Check if LLM is requested via query parameter
-    force_llm = llm == 1
     explanation = await generate_explanation(assessment_data, force_llm=force_llm)
     
     # Build HTML sections in exact order specified
@@ -874,6 +869,49 @@ async def assess(
     </body>
     </html>
     """
+
+
+@app.post("/assess", response_class=RedirectResponse)
+async def assess_post(
+    course: str = Form(...),
+    handicap: int = Form(...),
+    day: str = Form(...),
+    time_of_day: str = Form(...)
+):
+    """
+    Handle POST form submission and redirect to GET with query parameters.
+    """
+    # Build query parameters
+    params = {
+        "course": course,
+        "handicap": str(handicap),
+        "day": day,
+        "time_of_day": time_of_day
+    }
+    
+    # Redirect to GET endpoint
+    query_string = urlencode(params)
+    return RedirectResponse(url=f"/assess?{query_string}", status_code=303)
+
+
+@app.get("/assess", response_class=HTMLResponse)
+async def assess_get(
+    course: str = Query(None),
+    handicap: int = Query(None),
+    day: str = Query(None),
+    time_of_day: str = Query(None),
+    llm: int = Query(0, description="Set to 1 to force LLM summary")
+):
+    """
+    Handle GET request for assessment results.
+    """
+    # Validate required parameters
+    if not all([course, handicap is not None, day, time_of_day]):
+        return RedirectResponse(url="/", status_code=303)
+    
+    # Render results
+    force_llm = llm == 1
+    return await render_assessment_results(course, handicap, day, time_of_day, force_llm)
 
 
 if __name__ == "__main__":
