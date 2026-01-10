@@ -901,6 +901,37 @@ async def get_courses(
         debug_info["q_len"] = len(q.strip()) if q else 0
         debug_info["courses_path"] = str(COURSES_PATH)
         debug_info["file_exists"] = COURSES_PATH.exists()
+        
+        # Additional debug information
+        debug_info["app_cwd"] = str(Path.cwd())
+        
+        # Check /app directory
+        app_dir = Path("/app")
+        debug_info["app_dir_exists"] = app_dir.exists() and app_dir.is_dir()
+        
+        # Check /app/data directory
+        app_data_dir = Path("/app/data")
+        debug_info["data_dir_exists"] = app_data_dir.exists() and app_data_dir.is_dir()
+        
+        # List files in /app/data if it exists
+        if debug_info["data_dir_exists"]:
+            try:
+                data_files = [f.name for f in app_data_dir.iterdir() if f.is_file()]
+                debug_info["data_dir_listing"] = sorted(data_files)
+            except Exception:
+                debug_info["data_dir_listing"] = []
+        else:
+            debug_info["data_dir_listing"] = []
+        
+        # List first 30 files in /app if it exists
+        if debug_info["app_dir_exists"]:
+            try:
+                app_files = [f.name for f in app_dir.iterdir() if f.is_file()]
+                debug_info["repo_root_listing_sample"] = sorted(app_files)[:30]
+            except Exception:
+                debug_info["repo_root_listing_sample"] = []
+        else:
+            debug_info["repo_root_listing_sample"] = []
     
     # Validate query parameter
     if not q or len(q.strip()) < 2:
