@@ -567,9 +567,7 @@ async def generate_explanation(assessment_data, force_llm=False, llm_effective_e
         # Try LLM, fall back silently to deterministic on any error
         try:
             explanation = await generate_explanation_llm(assessment_data)
-            # LLM succeeded - append [LLM] marker for visual confirmation
-            explanation_with_marker = f"{explanation} [LLM]"
-            return explanation_with_marker, "LLM"
+            return explanation, "LLM"
         except Exception as e:
             # Log the exception message
             logger.error(f"LLM: failed: {str(e)}")
@@ -880,8 +878,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         
         try:
             llm_summary = await generate_explanation_llm(assessment_data)
-            # Append [LLM] marker for visual confirmation
-            final_summary = f"{llm_summary} [LLM]"
+            final_summary = llm_summary
             summary_mode = "LLM"
             logger.info("OpenAI summary succeeded")
         except Exception as e:
