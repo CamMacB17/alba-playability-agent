@@ -3202,26 +3202,24 @@ async def read_root():
                             <label for="handicap">Handicap</label>
                             <input type="number" id="handicap" name="handicap" min="0" max="54" value="25" required>
                             <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
-                            
-                            <div class="form-row" style="margin-top: 16px;">
-                                <div class="form-group" style="margin-bottom: 0;">
-                                    <label for="day">Day</label>
-                                    <select id="day" name="day" required>
-                                        <option value="Today">Today</option>
-                                        <option value="Tomorrow">Tomorrow</option>
-                                    </select>
-                                </div>
-                                
-                                <div class="form-group" style="margin-bottom: 0;">
-                                    <label for="time_of_day">Time of day</label>
-                                    <select id="time_of_day" name="time_of_day" required>
-                                        <option value="Morning">Morning</option>
-                                        <option value="Midday">Midday</option>
-                                        <option value="Afternoon">Afternoon</option>
-                                        <option value="Evening">Evening</option>
-                                    </select>
-                                </div>
-                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="day">Day</label>
+                            <select id="day" name="day" required>
+                                <option value="Today">Today</option>
+                                <option value="Tomorrow">Tomorrow</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="time_of_day">Time of day</label>
+                            <select id="time_of_day" name="time_of_day" required>
+                                <option value="Morning">Morning</option>
+                                <option value="Midday">Midday</option>
+                                <option value="Afternoon">Afternoon</option>
+                                <option value="Evening">Evening</option>
+                            </select>
                         </div>
                         
                         <div class="form-group form-group-full">
