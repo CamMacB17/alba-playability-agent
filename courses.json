@@ -1,0 +1,48 @@
+[
+  {
+    "name": "Trent Park Golf Club",
+    "lat": 51.6625,
+    "lon": -0.1233,
+    "popularity_tier": "Medium",
+    "difficulty": "Medium",
+    "beginner_friendly": "Mixed",
+    "price_tier": "££"
+  },
+  {
+    "name": "Red Libbets Golf Club",
+    "lat": 51.4567,
+    "lon": -0.1234,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£"
+  },
+  {
+    "name": "Stanmore Golf Club",
+    "lat": 51.6189,
+    "lon": -0.3167,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££"
+  },
+  {
+    "name": "Demo Course Alpha",
+    "lat": 51.5074,
+    "lon": -0.1278,
+    "popularity_tier": "Low",
+    "difficulty": "Easy",
+    "beginner_friendly": "Yes",
+    "price_tier": "£"
+  },
+  {
+    "name": "Demo Course Beta",
+    "lat": 51.5155,
+    "lon": -0.0922,
+    "popularity_tier": "High",
+    "difficulty": "Hard",
+    "beginner_friendly": "No",
+    "price_tier": "£££"
+  }
+]
+

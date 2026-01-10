@@ -1,0 +1,13 @@
+{
+  "Trent Park Golf Club": {
+    "popularity_tier": "Medium",
+    "popularity_confidence": "High",
+    "difficulty": "Medium",
+    "difficulty_confidence": "High"
+  },
+  "Red Libbets Golf Club": {
+    "price_tier": "£",
+    "price_confidence": "Medium"
+  }
+}
+
