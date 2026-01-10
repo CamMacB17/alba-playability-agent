@@ -505,14 +505,24 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         "next_action": assessment_data["next_action"]
     }
     
-    prompt = f"""Summarise this golf course playability assessment in one short paragraph using British English. 
+    # Extract time_of_day to ensure we don't suggest a different time
+    user_time_of_day = assessment_data["time_of_day"]
+    verdict = assessment_data["verdict"]
+    
+    prompt = f"""Write a one-paragraph summary (60-90 words) of this golf course playability assessment using British English.
 
-You must only summarise the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes.
+Requirements:
+- Use exactly these computed labels: weather_rating="{assessment_data['weather_rating']}", ground_rating="{assessment_data['ground_rating']}", busyness_rating="{assessment_data['busyness_rating']}", suitability_rating="{assessment_data['suitability_rating']}", price_tier="{assessment_data['price_tier']}"
+- Do not repeat the same word twice in a row (e.g., avoid "today today" or "course course")
+- Do not suggest a different time of day since the user has already chosen {user_time_of_day}
+- End with a short practical nudge aligned to the verdict: {verdict}
+- Do not invent facts, numbers, live prices, or live tee times
+- Do not use ampersands or em dashes
 
 Assessment data:
 {json.dumps(structured_input, indent=2)}
 
-Provide a concise paragraph that helps the golfer understand the conditions and suitability based solely on these computed ratings."""
+Write one paragraph (60-90 words) that summarises the conditions and ends with a practical nudge."""
     
     # Log immediately before the API call
     request_id_str = f" request_id={request_id}" if request_id else ""
@@ -527,11 +537,11 @@ Provide a concise paragraph that helps the golfer understand the conditions and 
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful assistant that summarises golf course playability assessments. Use British English. Be concise and factual. Only restate the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
+                        "content": "You are a helpful assistant that writes concise golf course playability summaries. Use British English. Write exactly one paragraph of 60-90 words. Use the exact computed labels provided. Avoid repeating words consecutively. Do not suggest alternative times of day. End with a practical nudge aligned to the verdict. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
                     },
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=200,
+                max_tokens=150,
                 temperature=0.3
             ),
             timeout=10.0
