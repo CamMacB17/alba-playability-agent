@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 # Base directory and paths
 BASE_DIR = Path(__file__).resolve().parent
-COURSES_PATH = BASE_DIR / "data" / "courses.json"
+COURSES_PATH = BASE_DIR / "courses.json"
+COURSES_PATH_FALLBACK = BASE_DIR / "data" / "courses.json"
 
 app = FastAPI()
 
@@ -95,21 +96,24 @@ def find_course_by_name(course_name: str):
 
 def load_courses_from_data() -> List[Dict[str, str]]:
     """
-    Load courses from data/courses.json using absolute path.
+    Load courses from courses.json using absolute path.
+    Tries BASE_DIR/courses.json first, then falls back to BASE_DIR/data/courses.json.
     Returns list of course dicts with name and area, or empty list on error.
     """
-    try:
-        if COURSES_PATH.exists():
-            with open(COURSES_PATH, "r", encoding="utf-8") as f:
-                courses = json.load(f)
-                # Validate that courses is a list
-                if isinstance(courses, list):
-                    # Validate each course has required fields
-                    required_fields = ["name", "area"]
-                    if all(all(field in course for field in required_fields) for course in courses):
-                        return courses
-    except (json.JSONDecodeError, IOError, OSError) as e:
-        logger.error(f"Failed to load courses from {COURSES_PATH}: {str(e)}", exc_info=True)
+    # Try primary path first (root courses.json)
+    for courses_path in [COURSES_PATH, COURSES_PATH_FALLBACK]:
+        try:
+            if courses_path.exists():
+                with open(courses_path, "r", encoding="utf-8") as f:
+                    courses = json.load(f)
+                    # Validate that courses is a list
+                    if isinstance(courses, list):
+                        # Validate each course has required fields
+                        required_fields = ["name", "area"]
+                        if all(all(field in course for field in required_fields) for course in courses):
+                            return courses
+        except (json.JSONDecodeError, IOError, OSError) as e:
+            logger.error(f"Failed to load courses from {courses_path}: {str(e)}", exc_info=True)
     
     return []
 
@@ -900,7 +904,9 @@ async def get_courses(
         debug_info["q_stripped"] = q.strip() if q else None
         debug_info["q_len"] = len(q.strip()) if q else 0
         debug_info["courses_path"] = str(COURSES_PATH)
+        debug_info["courses_path_fallback"] = str(COURSES_PATH_FALLBACK)
         debug_info["file_exists"] = COURSES_PATH.exists()
+        debug_info["file_exists_fallback"] = COURSES_PATH_FALLBACK.exists()
         
         # Additional debug information
         debug_info["app_cwd"] = str(Path.cwd())
@@ -944,7 +950,7 @@ async def get_courses(
     
     query = q.strip().lower()
     
-    # Load courses from data/courses.json
+    # Load courses from courses.json (tries root first, then data/ subdirectory)
     courses = load_courses_from_data()
     courses_count = len(courses)
     
@@ -953,7 +959,9 @@ async def get_courses(
         debug_info["first_5_courses"] = [course["name"] for course in courses[:5]]
     
     if not courses:
-        logger.info(f"/courses: q='{q}', path={COURSES_PATH}, loaded=0, matches=0")
+        # Determine which path was attempted
+        attempted_path = COURSES_PATH if COURSES_PATH.exists() else COURSES_PATH_FALLBACK
+        logger.info(f"/courses: q='{q}', path={attempted_path}, loaded=0, matches=0")
         if debug_mode:
             debug_info["matches_found"] = 0
             return {"results": [], "debug": debug_info}
@@ -980,7 +988,9 @@ async def get_courses(
     matches_count = len(top_matches)
     
     # Log request details
-    logger.info(f"/courses: q='{q}', path={COURSES_PATH}, loaded={courses_count}, matches={matches_count}")
+    # Determine which path was used (primary if exists, otherwise fallback)
+    used_path = COURSES_PATH if COURSES_PATH.exists() else COURSES_PATH_FALLBACK
+    logger.info(f"/courses: q='{q}', path={used_path}, loaded={courses_count}, matches={matches_count}")
     
     # Return only name and area fields
     results = [{"name": course["name"], "area": course["area"]} for course in top_matches]
