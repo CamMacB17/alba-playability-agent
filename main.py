@@ -91,14 +91,14 @@ def find_course_by_name(course_name: str):
 async def fetch_weather_data(lat: float, lon: float, target_date: str):
     """
     Fetch weather data for a specific date.
-    Returns dict with temperature, wind_speed, precipitation, or None if error.
+    Returns dict with temperature, wind_speed, precipitation, sunset, or None if error.
     """
     try:
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
             "latitude": lat,
             "longitude": lon,
-            "daily": "temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_sum",
+            "daily": "temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_sum,sunset",
             "timezone": "auto",
             "start_date": target_date,
             "end_date": target_date
@@ -111,12 +111,16 @@ async def fetch_weather_data(lat: float, lon: float, target_date: str):
             
             if "daily" in data and len(data["daily"]["time"]) > 0:
                 daily = data["daily"]
-                return {
+                result = {
                     "temperature_max": daily["temperature_2m_max"][0],
                     "temperature_min": daily["temperature_2m_min"][0],
                     "wind_speed": daily["wind_speed_10m_max"][0],
                     "precipitation": daily["precipitation_sum"][0]
                 }
+                # Add sunset if available
+                if "sunset" in daily and len(daily["sunset"]) > 0:
+                    result["sunset"] = daily["sunset"][0]
+                return result
     except Exception:
         pass
     
@@ -259,6 +263,122 @@ def calculate_tomorrow_forecast(today_weather, tomorrow_weather):
         return "Worse"
 
 
+def get_sunset_time_fallback(month: int) -> str:
+    """
+    Get estimated sunset time by month for UK (London area).
+    Returns time string in HH:MM format (24-hour).
+    """
+    # Approximate sunset times for London, UK by month
+    sunset_times = {
+        1: "16:30",  # January
+        2: "17:15",  # February
+        3: "18:00",  # March
+        4: "19:45",  # April
+        5: "20:30",  # May
+        6: "21:15",  # June
+        7: "21:00",  # July
+        8: "20:15",  # August
+        9: "19:00",  # September
+        10: "17:45", # October
+        11: "16:30", # November
+        12: "16:00"  # December
+    }
+    return sunset_times.get(month, "18:00")  # Default to 18:00
+
+
+def get_tee_time_from_time_of_day(time_of_day: str) -> str:
+    """
+    Convert time_of_day to estimated tee time.
+    Returns time string in HH:MM format (24-hour).
+    """
+    tee_times = {
+        "Morning": "09:00",
+        "Midday": "12:00",
+        "Afternoon": "14:30",
+        "Evening": "16:30"
+    }
+    return tee_times.get(time_of_day, "12:00")
+
+
+def calculate_daylight_feasibility(time_of_day: str, busyness_rating: str, weather_data: dict, month: int, target_date: str) -> dict:
+    """
+    Calculate daylight feasibility and recommended holes.
+    Returns dict with:
+    - recommended_holes: 18 or 9
+    - daylight_label: "Plenty of light", "Tight", or "Not feasible"
+    - daylight_minutes: minutes of daylight available
+    """
+    # Get tee time
+    tee_time_str = get_tee_time_from_time_of_day(time_of_day)
+    tee_hour, tee_minute = map(int, tee_time_str.split(":"))
+    
+    # Get sunset time (from weather data if available, otherwise fallback)
+    sunset_time_str = None
+    if weather_data and "sunset" in weather_data:
+        # Parse ISO format sunset time (e.g., "2024-01-15T16:30:00Z")
+        try:
+            sunset_dt = datetime.fromisoformat(weather_data["sunset"].replace("Z", "+00:00"))
+            sunset_time_str = sunset_dt.strftime("%H:%M")
+        except Exception:
+            pass
+    
+    if not sunset_time_str:
+        sunset_time_str = get_sunset_time_fallback(month)
+    
+    sunset_hour, sunset_minute = map(int, sunset_time_str.split(":"))
+    
+    # Calculate daylight minutes
+    # Parse target date to get the actual date
+    target_dt = datetime.fromisoformat(target_date)
+    tee_datetime = target_dt.replace(hour=tee_hour, minute=tee_minute)
+    sunset_datetime = target_dt.replace(hour=sunset_hour, minute=sunset_minute)
+    
+    # Handle case where sunset is next day (shouldn't happen for UK, but handle it)
+    if sunset_datetime < tee_datetime:
+        sunset_datetime += timedelta(days=1)
+    
+    daylight_minutes = int((sunset_datetime - tee_datetime).total_seconds() / 60)
+    
+    # Estimate expected duration based on busyness
+    duration_map = {
+        "Quiet": {"18": 240, "9": 120},
+        "Moderate": {"18": 270, "9": 135},
+        "Busy": {"18": 300, "9": 150},
+        "Very busy": {"18": 300, "9": 150}  # Treat Very busy same as Busy
+    }
+    durations = duration_map.get(busyness_rating, {"18": 270, "9": 135})
+    duration_18 = durations["18"]
+    duration_9 = durations["9"]
+    
+    # Determine recommended holes
+    recommended_holes = 9  # Default
+    daylight_label = "Not feasible"
+    
+    if daylight_minutes >= duration_18:
+        recommended_holes = 18
+        margin = daylight_minutes - duration_18
+        if margin >= 30:
+            daylight_label = "Plenty of light"
+        else:
+            daylight_label = "Tight"
+    elif daylight_minutes >= duration_9:
+        recommended_holes = 9
+        margin = daylight_minutes - duration_9
+        if margin >= 30:
+            daylight_label = "Plenty of light"
+        else:
+            daylight_label = "Tight"
+    else:
+        recommended_holes = 9
+        daylight_label = "Not feasible"
+    
+    return {
+        "recommended_holes": recommended_holes,
+        "daylight_label": daylight_label,
+        "daylight_minutes": daylight_minutes
+    }
+
+
 def calculate_busyness_rating(month, weather_rating, day_of_week, time_of_day, popularity_tier):
     """
     Calculate busyness rating: Quiet / Moderate / Busy / Very busy
@@ -364,10 +484,15 @@ def calculate_handicap_suitability(handicap, course_difficulty, busyness_rating)
         return "Not ideal today"
 
 
-def determine_play_recommendation(weather_rating, ground_condition, busyness_rating, handicap_suitability):
+def determine_play_recommendation(weather_rating, ground_condition, busyness_rating, handicap_suitability, daylight_label=None):
     """
     Determine Play or Don't play recommendation.
+    If daylight_label is "Not feasible", verdict must be "Don't play".
     """
+    # Daylight feasibility overrides everything
+    if daylight_label == "Not feasible":
+        return "Don't play"
+    
     score = 0
     
     if weather_rating == "Good":
@@ -436,7 +561,7 @@ def generate_added_action(play_recommendation, time_of_day, busyness_rating, wea
         return " ".join(suggestions)
 
 
-def generate_explanation_deterministic(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_tier, tomorrow_forecast):
+def generate_explanation_deterministic(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_tier, tomorrow_forecast, recommended_holes=None):
     """
     Generate deterministic explanation paragraph summarising all ratings.
     """
@@ -451,6 +576,12 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
     parts.append(f"considering seasonality, weather attractiveness, day of week, time of day, and course popularity.")
     
     parts.append(f"For your handicap, this course is {handicap_suitability.lower()} today.")
+    
+    if recommended_holes:
+        if recommended_holes == 18:
+            parts.append(f"{recommended_holes} holes looks feasible before sunset.")
+        else:
+            parts.append(f"{recommended_holes} holes is the safer call for daylight.")
     
     parts.append(f"The price tier is {price_tier} (typical estimate).")
     
@@ -474,6 +605,8 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         - price_tier: str (£/££/£££)
         - verdict: str (Play/Don't play)
         - next_action: str
+        - recommended_holes: int (18 or 9)
+        - daylight_label: str (Plenty of light/Tight/Not feasible)
     request_id: unique request identifier for logging
     """
     # Read OPENAI_API_KEY from environment
@@ -502,17 +635,28 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         "suitability_rating": assessment_data["suitability_rating"],
         "price_tier": assessment_data["price_tier"],
         "verdict": assessment_data["verdict"],
-        "next_action": assessment_data["next_action"]
+        "next_action": assessment_data["next_action"],
+        "recommended_holes": assessment_data.get("recommended_holes"),
+        "daylight_label": assessment_data.get("daylight_label")
     }
     
     # Extract time_of_day to ensure we don't suggest a different time
     user_time_of_day = assessment_data["time_of_day"]
     verdict = assessment_data["verdict"]
+    recommended_holes = assessment_data.get("recommended_holes")
+    
+    holes_text = ""
+    if recommended_holes:
+        if recommended_holes == 18:
+            holes_text = f" Mention that {recommended_holes} holes looks feasible before sunset."
+        else:
+            holes_text = f" Mention that {recommended_holes} holes is the safer call for daylight."
     
     prompt = f"""Write a one-paragraph summary (60-90 words) of this golf course playability assessment using British English.
 
 Requirements:
 - Use exactly these computed labels: weather_rating="{assessment_data['weather_rating']}", ground_rating="{assessment_data['ground_rating']}", busyness_rating="{assessment_data['busyness_rating']}", suitability_rating="{assessment_data['suitability_rating']}", price_tier="{assessment_data['price_tier']}"
+- When relevant, mention recommended_holes: {recommended_holes if recommended_holes else 'N/A'}{holes_text}
 - Do not repeat the same word twice in a row (e.g., avoid "today today" or "course course")
 - Do not suggest a different time of day since the user has already chosen {user_time_of_day}
 - End with a short practical nudge aligned to the verdict: {verdict}
@@ -849,8 +993,15 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         busyness_rating
     )
     
+    # Calculate daylight feasibility
+    daylight_info = calculate_daylight_feasibility(
+        time_of_day, busyness_rating, weather_data, month, target_date
+    )
+    recommended_holes = daylight_info["recommended_holes"]
+    daylight_label = daylight_info["daylight_label"]
+    
     play_recommendation = determine_play_recommendation(
-        weather_rating, ground_condition, busyness_rating, handicap_suitability
+        weather_rating, ground_condition, busyness_rating, handicap_suitability, daylight_label
     )
     
     added_action = generate_added_action(
@@ -864,7 +1015,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         busyness_rating,
         handicap_suitability,
         course_data["price_tier"] if course_data else "££",
-        tomorrow_forecast
+        tomorrow_forecast,
+        recommended_holes
     )
     
     # Determine summary_mode based on whether LLM was attempted
@@ -884,7 +1036,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             "suitability_rating": handicap_suitability,
             "price_tier": course_data["price_tier"] if course_data else "££",
             "verdict": play_recommendation,
-            "next_action": added_action
+            "next_action": added_action,
+            "recommended_holes": recommended_holes,
+            "daylight_label": daylight_label
         }
         
         try:
@@ -930,6 +1084,18 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <div class="result-item">
             <div class="result-label">Handicap Suitability:</div>
             <div class="result-value">{handicap_suitability}</div>
+        </div>
+    """
+    
+    # 3.5. Daylight feasibility
+    daylight_html = f"""
+        <div class="result-item">
+            <div class="result-label">Recommended Holes:</div>
+            <div class="result-value">{recommended_holes} holes</div>
+        </div>
+        <div class="result-item">
+            <div class="result-label">Daylight:</div>
+            <div class="result-value">{daylight_label}</div>
         </div>
     """
     
@@ -1059,6 +1225,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         {busyness_html}
         
         {handicap_html}
+        
+        {daylight_html}
         
         {price_html}
         
