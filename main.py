@@ -882,13 +882,33 @@ async def debug_version() -> Dict[str, Any]:
 
 
 @app.get("/courses")
-async def get_courses(q: str = Query(None, description="Search query for course names")):
+async def get_courses(
+    q: str = Query(None, description="Search query for course names"),
+    debug: str = Query(None, description="Set to 1 to include debug information")
+):
     """
     Search courses by name.
     Returns up to 8 matching courses, sorted by relevance.
+    When debug=1, includes debug information in response.
     """
+    debug_mode = debug == "1"
+    
+    # Collect debug information if debug mode is enabled
+    debug_info = {}
+    if debug_mode:
+        debug_info["q_received"] = q if q else None
+        debug_info["q_stripped"] = q.strip() if q else None
+        debug_info["q_len"] = len(q.strip()) if q else 0
+        debug_info["courses_path"] = str(COURSES_PATH)
+        debug_info["file_exists"] = COURSES_PATH.exists()
+    
     # Validate query parameter
     if not q or len(q.strip()) < 2:
+        if debug_mode:
+            debug_info["courses_loaded"] = 0
+            debug_info["first_5_courses"] = []
+            debug_info["matches_found"] = 0
+            return {"results": [], "debug": debug_info}
         return {"results": []}
     
     query = q.strip().lower()
@@ -897,8 +917,15 @@ async def get_courses(q: str = Query(None, description="Search query for course 
     courses = load_courses_from_data()
     courses_count = len(courses)
     
+    if debug_mode:
+        debug_info["courses_loaded"] = courses_count
+        debug_info["first_5_courses"] = [course["name"] for course in courses[:5]]
+    
     if not courses:
         logger.info(f"/courses: q='{q}', path={COURSES_PATH}, loaded=0, matches=0")
+        if debug_mode:
+            debug_info["matches_found"] = 0
+            return {"results": [], "debug": debug_info}
         return {"results": []}
     
     # Perform case-insensitive substring matching
@@ -926,6 +953,10 @@ async def get_courses(q: str = Query(None, description="Search query for course 
     
     # Return only name and area fields
     results = [{"name": course["name"], "area": course["area"]} for course in top_matches]
+    
+    if debug_mode:
+        debug_info["matches_found"] = matches_count
+        return {"results": results, "debug": debug_info}
     
     return {"results": results}
 
