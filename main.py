@@ -505,25 +505,30 @@ Provide a concise paragraph that helps the golfer understand the conditions and 
     logger.info("LLM: calling OpenAI now")
     
     # Make async API call with timeout
-    response = await asyncio.wait_for(
-        openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant that summarises golf course playability assessments. Use British English. Be concise and factual. Only restate the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=200,
-            temperature=0.3
-        ),
-        timeout=10.0
-    )
-    
-    explanation = response.choices[0].message.content.strip()
-    logger.info("LLM: success")
-    return explanation
+    try:
+        response = await asyncio.wait_for(
+            openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that summarises golf course playability assessments. Use British English. Be concise and factual. Only restate the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.3
+            ),
+            timeout=10.0
+        )
+        
+        explanation = response.choices[0].message.content.strip()
+        logger.info("LLM: success")
+        return explanation
+    except Exception as e:
+        # Log the exception message before re-raising
+        logger.error(f"LLM: OpenAI call failed: {str(e)}", exc_info=True)
+        raise
 
 
 async def generate_explanation(assessment_data, force_llm=False, llm_effective_enabled=False) -> Tuple[str, str]:
