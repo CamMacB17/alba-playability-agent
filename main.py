@@ -1,12 +1,17 @@
 import json
 import os
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Form, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
 import httpx
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -432,7 +437,7 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
 async def generate_explanation_llm(assessment_data):
     """
     Generate explanation using OpenAI LLM with structured input.
-    Falls back to deterministic if API call fails.
+    Raises exception if API call fails (to be caught by caller).
     
     assessment_data: dict containing:
         - course_name: str
@@ -448,32 +453,24 @@ async def generate_explanation_llm(assessment_data):
         - next_action: str
     """
     if not openai_client:
-        return generate_explanation_deterministic(
-            assessment_data["weather_rating"],
-            assessment_data["ground_rating"],
-            assessment_data["busyness_rating"],
-            assessment_data["suitability_rating"],
-            assessment_data["price_tier"],
-            None  # tomorrow_forecast not in structured data
-        )
+        raise ValueError("OpenAI client not available")
     
-    try:
-        # Create structured input as JSON
-        structured_input = {
-            "course_name": assessment_data["course_name"],
-            "day": assessment_data["day"],
-            "time_of_day": assessment_data["time_of_day"],
-            "handicap": assessment_data["handicap"],
-            "weather_rating": assessment_data["weather_rating"],
-            "ground_rating": assessment_data["ground_rating"],
-            "busyness_rating": assessment_data["busyness_rating"],
-            "suitability_rating": assessment_data["suitability_rating"],
-            "price_tier": assessment_data["price_tier"],
-            "verdict": assessment_data["verdict"],
-            "next_action": assessment_data["next_action"]
-        }
-        
-        prompt = f"""Summarise this golf course playability assessment in one short paragraph using British English. 
+    # Create structured input as JSON
+    structured_input = {
+        "course_name": assessment_data["course_name"],
+        "day": assessment_data["day"],
+        "time_of_day": assessment_data["time_of_day"],
+        "handicap": assessment_data["handicap"],
+        "weather_rating": assessment_data["weather_rating"],
+        "ground_rating": assessment_data["ground_rating"],
+        "busyness_rating": assessment_data["busyness_rating"],
+        "suitability_rating": assessment_data["suitability_rating"],
+        "price_tier": assessment_data["price_tier"],
+        "verdict": assessment_data["verdict"],
+        "next_action": assessment_data["next_action"]
+    }
+    
+    prompt = f"""Summarise this golf course playability assessment in one short paragraph using British English. 
 
 You must only summarise the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes.
 
@@ -481,45 +478,37 @@ Assessment data:
 {json.dumps(structured_input, indent=2)}
 
 Provide a concise paragraph that helps the golfer understand the conditions and suitability based solely on these computed ratings."""
-        
-        # Make async API call with timeout
-        response = await asyncio.wait_for(
-            openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant that summarises golf course playability assessments. Use British English. Be concise and factual. Only restate the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=200,
-                temperature=0.3
-            ),
-            timeout=10.0
-        )
-        
-        explanation = response.choices[0].message.content.strip()
-        return explanation
-        
-    except (asyncio.TimeoutError, Exception):
-        # Fall back to deterministic on any error (timeout, API error, etc.)
-        return generate_explanation_deterministic(
-            assessment_data["weather_rating"],
-            assessment_data["ground_rating"],
-            assessment_data["busyness_rating"],
-            assessment_data["suitability_rating"],
-            assessment_data["price_tier"],
-            None
-        )
+    
+    # Make async API call with timeout
+    response = await asyncio.wait_for(
+        openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that summarises golf course playability assessments. Use British English. Be concise and factual. Only restate the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
+                },
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=200,
+            temperature=0.3
+        ),
+        timeout=10.0
+    )
+    
+    explanation = response.choices[0].message.content.strip()
+    return explanation
 
 
-async def generate_explanation(assessment_data, force_llm=False):
+async def generate_explanation(assessment_data, force_llm=False) -> Tuple[str, str]:
     """
     Generate explanation paragraph. Uses LLM if enabled and available, otherwise uses deterministic version.
     
     assessment_data: dict containing all required fields for structured LLM input
     force_llm: if True, indicates llm=1 query parameter was passed
+    
+    Returns: tuple of (explanation_text, summary_mode)
+        summary_mode: "LLM", "Deterministic (LLM failed)", or "Deterministic"
     """
     # LLM should run if (query llm == 1) OR (env LLM_SUMMARY == true)
     # But LLM must never run if OPENAI_API_KEY is missing
@@ -528,13 +517,17 @@ async def generate_explanation(assessment_data, force_llm=False):
     if use_llm:
         # Try LLM, fall back silently to deterministic on any error
         try:
-            return await generate_explanation_llm(assessment_data)
-        except Exception:
+            explanation = await generate_explanation_llm(assessment_data)
+            # LLM succeeded
+            return explanation, "LLM"
+        except Exception as e:
+            # Log the exception message
+            logger.error(f"OpenAI API call failed: {str(e)}")
             # Fall back silently to deterministic on any error
             pass
     
     # Use deterministic explanation
-    return generate_explanation_deterministic(
+    deterministic_explanation = generate_explanation_deterministic(
         assessment_data["weather_rating"],
         assessment_data["ground_rating"],
         assessment_data["busyness_rating"],
@@ -542,6 +535,12 @@ async def generate_explanation(assessment_data, force_llm=False):
         assessment_data["price_tier"],
         None  # tomorrow_forecast not needed for deterministic
     )
+    
+    # Determine mode: if LLM was attempted but failed, show "Deterministic (LLM failed)"
+    if use_llm:
+        return deterministic_explanation, "Deterministic (LLM failed)"
+    else:
+        return deterministic_explanation, "Deterministic"
 
 
 @app.get("/debug/env")
@@ -739,7 +738,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "next_action": added_action
     }
     
-    explanation = await generate_explanation(assessment_data, force_llm=force_llm)
+    explanation, summary_mode = await generate_explanation(assessment_data, force_llm=force_llm)
     
     # Build HTML sections in exact order specified
     # 1. Weather rating
@@ -789,8 +788,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     """
     
     # 5. Explanation paragraph
+    summary_mode_text = f"Summary mode: {summary_mode}"
     explanation_html = f"""
         <div class="result-item">
+            <div class="summary-mode">{summary_mode_text}</div>
             <div class="result-label">Summary:</div>
             <div class="result-value">{explanation}</div>
         </div>
@@ -847,6 +848,12 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 color: #666;
                 margin-top: 5px;
                 font-style: italic;
+            }}
+            .summary-mode {{
+                font-size: 11px;
+                color: #888;
+                font-style: italic;
+                margin-bottom: 8px;
             }}
             a {{
                 display: inline-block;
