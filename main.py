@@ -611,6 +611,52 @@ async def debug_version() -> Dict[str, Any]:
     }
 
 
+@app.get("/debug/openai")
+async def debug_openai() -> Dict[str, Any]:
+    """
+    Debug endpoint to check OpenAI setup.
+    Returns JSON with import status, version, client creation status, and API key presence.
+    Must not crash even if imports fail.
+    """
+    result = {
+        "openai_import_ok": False,
+        "openai_version": "unknown",
+        "client_created": False,
+        "has_openai_key": bool(OPENAI_API_KEY)
+    }
+    
+    # Try to import openai
+    try:
+        import openai
+        result["openai_import_ok"] = True
+    except Exception:
+        result["openai_import_ok"] = False
+        return result
+    
+    # Try to get openai version
+    try:
+        import importlib.metadata
+        version = importlib.metadata.version("openai")
+        result["openai_version"] = version
+    except Exception:
+        try:
+            # Fallback to __version__ attribute
+            version = getattr(openai, "__version__", "unknown")
+            result["openai_version"] = version
+        except Exception:
+            result["openai_version"] = "unknown"
+    
+    # Try to instantiate client the same way the app does
+    try:
+        from openai import AsyncOpenAI
+        test_client = AsyncOpenAI(api_key=OPENAI_API_KEY if OPENAI_API_KEY else "test-key", timeout=10.0)
+        result["client_created"] = True
+    except Exception:
+        result["client_created"] = False
+    
+    return result
+
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     courses = load_courses()
