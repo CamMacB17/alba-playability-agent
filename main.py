@@ -739,7 +739,7 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     Compute playability using deterministic scoring model with explicit thresholds.
     Returns dict with:
     - overall_score (0-100)
-    - verdict (Play / Borderline / Not ideal)
+    - verdict (Play / Not ideal) - binary decision only
     - confidence (High / Medium / Low)
     - reasons[] (each reason references specific factor + threshold)
     - recommendations[] (handicap-aware)
@@ -931,12 +931,10 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         overall_score = sum(factor_scores[factor] * weights[factor] for factor in weights if factor != "daylight")
         overall_score = int(overall_score)
     
-    # Determine verdict from overall score with explicit thresholds
-    # Play: >=70, Borderline: 45-69, Not ideal: <45
-    if overall_score >= 70:
+    # Determine verdict from overall score with explicit thresholds (binary decision)
+    # Play: >=60, Not ideal: <60
+    if overall_score >= 60:
         verdict = "Play"
-    elif overall_score >= 45:
-        verdict = "Borderline"
     else:
         verdict = "Not ideal"
     
@@ -1005,30 +1003,25 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     if has_conflict or has_missing_inputs:
         confidence = "Low"
     
-    # If still Medium and verdict is Borderline, set to Low
-    if confidence == "Medium" and verdict == "Borderline":
-        confidence = "Low"
-        confidence_reason = "Borderline conditions mean factors are mixed"
-    
     # Generate handicap-aware recommendations based on factor thresholds
     if verdict == "Play":
         # Play recommendations based on threshold scores
         if factor_scores["weather"] >= 100 and factor_scores["suitability"] >= 80:
             recommendations.append({
                 "action": "Consider a personal best attempt",
-                "reason": f"With dry weather (score 100) and conditions well suited to your handicap of {handicap} (score {factor_scores['suitability']}), this is a good day for a personal best attempt"
+                "reason": f"With dry weather and conditions well suited to your handicap of {handicap}, this is a good day for a personal best attempt"
             })
         elif factor_scores["busyness"] >= 70:
             recommendations.append({
                 "action": "Any time window should work well",
-                "reason": f"Course pressure is {busyness_label.lower()} (score {factor_scores['busyness']}), so any time window should work well without long waits"
+                "reason": f"Course pressure is {busyness_label.lower()}, so any time window should work well without long waits"
             })
         else:
             recommendations.append({
                 "action": "Plan for a social round",
-                "reason": f"With weather score {factor_scores['weather']} and busyness score {factor_scores['busyness']}, this is good for a social round"
+                "reason": f"With {weather_label.lower()} weather and {busyness_label.lower()} course pressure, this is good for a social round"
             })
-    else:  # Borderline or Not ideal
+    else:  # Not ideal
         # Recommendations based on lowest scoring factors (threshold-based)
         if not daylight_feasible:
             recommendations.append({
@@ -1039,32 +1032,32 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
             if weather_label in ["Rain", "Showers"]:
                 recommendations.append({
                     "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"{weather_label.lower()} conditions (score {factor_scores['weather']}) affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots"
+                    "reason": f"{weather_label.lower()} conditions affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots"
                 })
             elif weather_label == "Windy":
                 recommendations.append({
                     "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"Windy conditions (score {factor_scores['weather']}) affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots"
+                    "reason": f"Windy conditions affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots"
                 })
             elif weather_label in ["Cold", "Very cold"]:
                 recommendations.append({
                     "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"{weather_label.lower()} conditions (score {factor_scores['weather']}) affect ball flight distance and flexibility more significantly for players with your handicap of {handicap}, making it harder to maintain consistent swing tempo"
+                    "reason": f"{weather_label.lower()} conditions affect ball flight distance and flexibility more significantly for players with your handicap of {handicap}, making it harder to maintain consistent swing tempo"
                 })
         elif factor_scores["ground"] < 50:  # Threshold: ground score below 50
             recommendations.append({
                 "action": "Consider waiting for firmer ground conditions",
-                "reason": f"Softer ground (score {factor_scores['ground']}) penalises players with your handicap of {handicap} more heavily, as approach shots won't roll or bounce as expected, making distance control harder"
+                "reason": f"Softer ground penalises players with your handicap of {handicap} more heavily, as approach shots won't roll or bounce as expected, making distance control harder"
             })
         elif factor_scores["busyness"] < 50:  # Threshold: busyness score below 50
             recommendations.append({
                 "action": "Try booking at a quieter time, like early morning or late afternoon",
-                "reason": f"Busier conditions (score {factor_scores['busyness']}) reduce waiting and help players with your handicap of {handicap} maintain tempo and rhythm between shots"
+                "reason": f"Busier conditions reduce waiting and help players with your handicap of {handicap} maintain tempo and rhythm between shots"
             })
         elif factor_scores["suitability"] < 50:  # Threshold: suitability score below 50
             recommendations.append({
                 "action": "Consider trying a less demanding course today",
-                "reason": f"Course difficulty combined with today's conditions (suitability score {factor_scores['suitability']}) adds unnecessary challenge for players with your handicap of {handicap}"
+                "reason": f"Course difficulty combined with today's conditions adds unnecessary challenge for players with your handicap of {handicap}"
             })
     
     # Validate and filter reasons to prevent duplicates and generic filler
@@ -1410,13 +1403,12 @@ def calculate_handicap_suitability_score(handicap, course_difficulty, ground_inf
     suitability_score = base_score + handicap_penalty + ground_penalty + weather_penalty + busyness_penalty
     suitability_score = max(0, min(100, suitability_score))  # Clamp to 0-100
     
-    # Generate suitability label based on score
-    if suitability_score >= 70:
-        suitability_label = f"Well suited for a {handicap} handicap today"
-    elif suitability_score >= 50:
-        suitability_label = f"Borderline for a {handicap} handicap today"
+    # Generate suitability label based on score (binary decision)
+    # Use normalized format: "Good for a {handicap} handicap" or "Tough for a {handicap} handicap today"
+    if suitability_score >= 60:
+        suitability_label = f"Good for a {handicap} handicap"
     else:
-        suitability_label = f"Challenging for a {handicap} handicap today"
+        suitability_label = f"Tough for a {handicap} handicap today"
     
     # Generate 1-2 plain English reasons specific to handicap band
     reasons = []
@@ -1439,10 +1431,8 @@ def calculate_handicap_suitability_score(handicap, course_difficulty, ground_inf
     
     # Ensure we have at least one reason
     if not reasons:
-        if suitability_score >= 70:
+        if suitability_score >= 60:
             reasons.append(f"Course conditions are well matched to your {band_description} ({handicap})")
-        elif suitability_score >= 50:
-            reasons.append(f"Course conditions are borderline for your {band_description} ({handicap})")
         else:
             reasons.append(f"Course conditions add unnecessary challenge for your {band_description} ({handicap})")
     
@@ -1468,7 +1458,7 @@ def calculate_handicap_suitability_score(handicap, course_difficulty, ground_inf
 
 def calculate_handicap_suitability(handicap, course_difficulty, busyness_rating):
     """
-    Calculate handicap suitability: Well suited / Borderline / Not ideal today
+    Calculate handicap suitability: Well suited / Not ideal today (binary decision)
     Handicap buckets: 0-9, 10-19, 20-28, 29+
     Principle: busy + hard course = less suitable for higher handicaps
     """
@@ -1514,10 +1504,8 @@ def calculate_handicap_suitability(handicap, course_difficulty, busyness_rating)
     
     total_score = base_suitability + handicap_adjustment + busyness_adjustment
     
-    if total_score >= 2:
+    if total_score >= 1:
         return "Well suited"
-    elif total_score >= 0:
-        return "Borderline"
     else:
         return "Not ideal today"
 
@@ -1549,8 +1537,6 @@ def determine_play_recommendation(weather_rating, ground_condition, busyness_rat
     
     if handicap_suitability == "Well suited":
         score += 2
-    elif handicap_suitability == "Borderline":
-        score += 1
     
     return "Play" if score >= 5 else "Don't play"
 
@@ -1654,8 +1640,6 @@ def generate_why_bullets(play_recommendation, weather_rating, ground_condition, 
             bullets.append(f"Given your handicap of {handicap}, today's course difficulty level is likely to add unnecessary difficulty to your round")
     elif handicap_suitability == "Well suited":
         bullets.append(f"Given your handicap of {handicap}, today's course conditions are well matched to your skill level, allowing you to play your natural game")
-    elif handicap_suitability == "Borderline":
-        bullets.append(f"Given your handicap of {handicap}, today's course conditions are borderline for your skill level, so expect some challenging moments")
     
     # Ensure we have exactly 3 bullets
     # Prioritise: daylight, weather, then others
@@ -1879,6 +1863,93 @@ def get_weather_label(weather_rating: str, weather_data: dict = None) -> str:
     return weather_rating
 
 
+def normalize_weather_label_for_display(weather_label: str, weather_data: dict = None) -> str:
+    """
+    Normalize weather label to user-friendly display values.
+    Returns ONE of: "Dry", "Light rain", "Rain", "Windy", "Cold", "Frost risk"
+    Chooses the most impactful condition based on available data.
+    Prioritizes: precipitation > wind > frost risk > cold > dry
+    Does not invent conditions if not present.
+    """
+    if not weather_label:
+        return "Dry"
+    
+    # If we have weather_data, use it to determine most impactful condition
+    if weather_data:
+        precipitation = weather_data.get("precipitation", 0)
+        wind_speed = weather_data.get("wind_speed", 0)
+        temp_min = weather_data.get("temperature_min", 10)
+        temp_max = weather_data.get("temperature_max", 10)
+        temp_avg = (temp_min + temp_max) / 2
+        
+        # Prioritize: precipitation > wind > frost risk > cold > dry
+        if precipitation >= 5:
+            return "Rain"
+        elif precipitation >= 1:
+            return "Light rain"
+        elif wind_speed >= 30:
+            return "Windy"
+        elif temp_min < 2:  # Frost risk threshold (check min temp, not avg)
+            return "Frost risk"
+        elif temp_avg < 5:
+            return "Cold"
+        else:
+            return "Dry"
+    
+    # Fallback: map internal labels to display labels
+    weather_label_lower = weather_label.lower()
+    
+    # Map precipitation labels
+    if weather_label_lower in ["rain", "heavy rain"]:
+        return "Rain"
+    elif weather_label_lower in ["showers", "light rain"]:
+        return "Light rain"
+    
+    # Map wind labels
+    if weather_label_lower in ["windy", "very windy", "breezy"]:
+        return "Windy"
+    
+    # Map temperature labels (but don't invent frost risk without data)
+    if weather_label_lower in ["very cold", "freezing"]:
+        return "Cold"
+    elif weather_label_lower == "cold":
+        return "Cold"
+    
+    # Default to Dry
+    if weather_label_lower == "dry":
+        return "Dry"
+    
+    # Final fallback
+    return "Dry"
+
+
+def normalize_suitability_label_for_display(suitability_label: str, handicap: int) -> str:
+    """
+    Normalize suitability label to user-friendly display values.
+    Returns ONE of:
+    - "Good for a {handicap} handicap"
+    - "Tough for a {handicap} handicap today"
+    Never returns "Borderline" or "Not ideal".
+    """
+    if not suitability_label:
+        return f"Tough for a {handicap} handicap today"
+    
+    suitability_lower = suitability_label.lower()
+    
+    # If already in correct format, return as-is (but ensure handicap matches)
+    if f"good for a {handicap} handicap" in suitability_lower or "good for a" in suitability_lower:
+        return f"Good for a {handicap} handicap"
+    if f"tough for a {handicap} handicap today" in suitability_lower or "tough for a" in suitability_lower:
+        return f"Tough for a {handicap} handicap today"
+    
+    # Check for positive indicators
+    if "well suited" in suitability_lower or "good" in suitability_lower or "suits" in suitability_lower:
+        return f"Good for a {handicap} handicap"
+    
+    # Everything else is "Tough"
+    return f"Tough for a {handicap} handicap today"
+
+
 def get_ground_label(ground_info) -> str:
     """
     Extract ground label from ground_info dict or return as-is if already a string.
@@ -1906,12 +1977,10 @@ def get_ground_label(ground_info) -> str:
 def get_suitability_label(handicap_suitability: str) -> str:
     """
     Convert handicap suitability to explicit, self-explanatory label.
-    Returns: "Well suited", "Borderline", or "Challenging for your handicap today"
+    Returns: "Well suited" or "Challenging for your handicap today" (binary decision)
     """
     if handicap_suitability == "Well suited":
         return "Well suited"
-    elif handicap_suitability == "Borderline":
-        return "Borderline"
     elif handicap_suitability == "Not ideal today":
         return "Challenging for your handicap today"
     else:
@@ -1953,7 +2022,7 @@ async def rewrite_reasons_and_recommendations_llm(deterministic_data, request_id
     deterministic_data: dict containing:
         - reasons: list of reason dicts with "factor", "condition", "threshold", "impact"
         - recommendations: list of recommendation dicts with "action", "reason"
-        - verdict: str (Play / Borderline / Not ideal)
+        - verdict: str (Play / Not ideal) - binary decision only
         - course_name: str
         - handicap: int
     
@@ -2157,7 +2226,7 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         - weather_rating: str (Good/Mixed/Poor)
         - ground_rating: str (Firm/Mixed/Soft/Soggy)
         - busyness_rating: str (Quiet/Moderate/Busy/Very busy)
-        - suitability_rating: str (Well suited/Borderline/Not ideal today)
+        - suitability_rating: str (Well suited/Not ideal today) - binary decision
         - price_label: str (Affordable/Mid-range/Expensive)
         - verdict: str (Play/Don't play)
         - next_action: str
@@ -2637,23 +2706,24 @@ async def read_root():
             }}
             .form-title {{
                 color: var(--alba-cream);
-                font-weight: 500;
-                font-size: 20px;
-                margin-bottom: 4px;
-                letter-spacing: -0.2px;
+                font-weight: 700;
+                font-size: clamp(44px, 48px, 48px);
+                line-height: 1.1;
+                margin-bottom: 8px;
+                letter-spacing: -0.5px;
             }}
             .form-subtitle {{
                 color: rgba(255, 247, 224, 0.7);
                 font-weight: 300;
-                font-size: 13px;
+                font-size: 17px;
                 line-height: 1.4;
             }}
             @media (max-width: 640px) {{
                 .form-title {{
-                    font-size: 18px;
+                    font-size: 32px;
                 }}
                 .form-subtitle {{
-                    font-size: 12px;
+                    font-size: 16px;
                 }}
             }}
             form {{
@@ -3170,18 +3240,20 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     weather_label = weather_info["weather_label"]
     
     # Extract suitability label from playability results for display
+    # Use normalized format: "Good for a {handicap} handicap" or "Tough for a {handicap} handicap today"
     suitability_reasons_list = [r for r in playability["reasons"] if r["factor"] == "suitability"]
     if suitability_reasons_list:
-        suitability_label_display = suitability_reasons_list[0]["condition"] if suitability_reasons_list else "Not ideal today"
+        suitability_label_raw = suitability_reasons_list[0]["condition"] if suitability_reasons_list else ""
     else:
-        suitability_label_display = "Not ideal today"
+        suitability_label_raw = ""
+    
+    # Normalize suitability label for display
+    suitability_label_display = normalize_suitability_label_for_display(suitability_label_raw, handicap)
     
     # Keep old handicap_suitability for backward compatibility (used in some display code)
     suitability_score = playability["factor_scores"]["suitability"]
-    if suitability_score >= 70:
+    if suitability_score >= 60:
         handicap_suitability = "Well suited"
-    elif suitability_score >= 50:
-        handicap_suitability = "Borderline"
     else:
         handicap_suitability = "Not ideal today"
     
@@ -3221,25 +3293,132 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     else:
         play_recommendation = "Don't play"
     
-    # Generate why bullets from structured reasons (already validated and limited to 3)
-    # Additional deduplication to ensure uniqueness
+    # Generate why bullets from structured reasons
+    # Format: "[Factor]: [what is happening], so [what it means for your round]."
+    # Rules: 2-4 bullets, no vague filler, each bullet names factor and explains consequence
+    import re
     seen_bullets = set()
     why_bullets = []
+    
+    # Map factor names to display names
+    factor_display_names = {
+        "weather": "Weather",
+        "ground": "Ground",
+        "busyness": "Course pressure",
+        "suitability": "Course suitability",
+        "daylight": "Daylight"
+    }
+    
     for reason in reasons:
-        impact_text = reason.get("impact", "")
-        impact_normalized = impact_text.lower().strip()
-        if impact_normalized and impact_normalized not in seen_bullets:
-            seen_bullets.add(impact_normalized)
-            why_bullets.append(impact_text)
-        if len(why_bullets) >= 3:
+        factor = reason.get("factor", "")
+        condition = reason.get("condition", "")
+        impact = reason.get("impact", "")
+        
+        if not impact or not factor:
+            continue
+        
+        # Format bullet: "[Factor]: [what is happening], so [what it means for your round]."
+        factor_display = factor_display_names.get(factor, factor.capitalize())
+        
+        # Extract what is happening and what it means from impact text
+        # Impact text should already explain both, but we format it consistently
+        # Remove any score references
+        impact_clean = impact
+        # Remove score references like "(score 30)" or "score 30"
+        impact_clean = re.sub(r'\s*\(score\s+\d+\)', '', impact_clean)
+        impact_clean = re.sub(r'\s+score\s+\d+', '', impact_clean)
+        impact_clean = impact_clean.strip()
+        
+        # Format bullet
+        bullet = f"{factor_display}: {impact_clean}"
+        
+        # Ensure it ends with a period
+        if not bullet.endswith('.'):
+            bullet += "."
+        
+        bullet_normalized = bullet.lower().strip()
+        if bullet_normalized and bullet_normalized not in seen_bullets:
+            seen_bullets.add(bullet_normalized)
+            why_bullets.append(bullet)
+        
+        # Limit to 4 bullets max
+        if len(why_bullets) >= 4:
             break
     
-    # Generate what to do from structured recommendations
+    # Ensure we have at least 2 bullets (use top reasons if needed)
+    if len(why_bullets) < 2 and reasons:
+        for reason in reasons[:2]:
+            if len(why_bullets) >= 2:
+                break
+            factor = reason.get("factor", "")
+            impact = reason.get("impact", "")
+            if impact and factor:
+                factor_display = factor_display_names.get(factor, factor.capitalize())
+                impact_clean = re.sub(r'\s*\(score\s+\d+\)', '', impact)
+                impact_clean = re.sub(r'\s+score\s+\d+', '', impact_clean).strip()
+                bullet = f"{factor_display}: {impact_clean}"
+                if not bullet.endswith('.'):
+                    bullet += "."
+                bullet_normalized = bullet.lower().strip()
+                if bullet_normalized not in seen_bullets:
+                    why_bullets.append(bullet)
+                    seen_bullets.add(bullet_normalized)
+    
+    # Generate what to do bullets from structured recommendations
+    # Format: "[Action]. [Why tied to handicap]."
+    # Rules: 2-4 bullets, each starts with action, includes WHY tied to handicap, one sentence, ends with full stop
+    # Remove score references from user-facing text
+    what_to_do_bullets = []
+    seen_actions = set()
+    
     if recommendations:
-        what_to_do = ". ".join([rec["reason"] for rec in recommendations[:3]]) + "."
-    else:
-        # Fallback if no recommendations (shouldn't happen)
-        what_to_do = f"With an overall score of {overall_score}, conditions are {verdict.lower()}."
+        for rec in recommendations:
+            action = rec.get("action", "")
+            reason = rec.get("reason", "")
+            
+            if not action or not reason:
+                continue
+            
+            # Remove score references
+            reason_clean = re.sub(r'\s*\(score\s+\d+\)', '', reason)
+            reason_clean = re.sub(r'\s+score\s+\d+', '', reason_clean)
+            reason_clean = re.sub(r'\s*\(score\s+\d+\)', '', reason_clean)
+            reason_clean = reason_clean.strip()
+            
+            # Format bullet: "[Action]. [Why tied to handicap]."
+            # Ensure action ends with period if it doesn't already
+            action_clean = action.strip()
+            if not action_clean.endswith('.'):
+                action_clean += "."
+            
+            # Combine action and reason
+            bullet = f"{action_clean} {reason_clean}"
+            
+            # Ensure it ends with a period
+            if not bullet.endswith('.'):
+                bullet += "."
+            
+            # Deduplicate by action
+            action_normalized = action.lower().strip()
+            if action_normalized not in seen_actions:
+                seen_actions.add(action_normalized)
+                what_to_do_bullets.append(bullet)
+            
+            # Limit to 4 bullets max
+            if len(what_to_do_bullets) >= 4:
+                break
+    
+    # Ensure we have at least 2 bullets
+    if len(what_to_do_bullets) < 2:
+        if verdict == "Play":
+            # Fallback for Play verdict
+            what_to_do_bullets.append("Enjoy your round. Conditions are suitable for your handicap today.")
+        else:
+            # Fallback for Not ideal
+            what_to_do_bullets.append(f"Consider waiting for better conditions. Today's conditions add unnecessary challenge for your handicap of {handicap}.")
+    
+    # Limit to 4 bullets max
+    what_to_do_bullets = what_to_do_bullets[:4]
     
     # Generate added_action from recommendations (for LLM summary)
     if recommendations:
@@ -3256,8 +3435,6 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         top_reason = reasons[0]["impact"]
         if verdict == "Play":
             final_summary = f"Good conditions today. {top_reason}."
-        elif verdict == "Borderline":
-            final_summary = f"Borderline conditions today. {top_reason}."
         else:  # Not ideal
             final_summary = f"Conditions are not ideal today. {top_reason}."
     else:
@@ -3275,9 +3452,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         summary_mode = "Deterministic"
     
     # Build HTML sections in exact order specified
-    # 1. Weather rating - use explicit labels
-    # Use weather_label from weather_info (condition-based descriptor)
-    weather_label_display = weather_label
+    # 1. Weather rating - use normalized labels for display
+    # Normalize weather label to user-friendly display values
+    weather_label_display = normalize_weather_label_for_display(weather_label, weather_data)
     ground_label_display = get_ground_label(ground_info)
     weather_rating_html = f"""
         <div class="result-item">
@@ -3341,13 +3518,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
     """
     
-    # Use structured verdict for title
+    # Use structured verdict for title (binary decision)
     if verdict == "Play":
-        verdict_title = "Good to play"
+        verdict_title = "Yes, play!"
         status_pill_text = "Play"
-    elif verdict == "Borderline":
-        verdict_title = "Borderline conditions"
-        status_pill_text = "Borderline"
     else:  # Not ideal
         verdict_title = "Not ideal today"
         status_pill_text = "Not ideal"
@@ -3357,67 +3531,60 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     if summary_first_sentence and not summary_first_sentence.endswith('.'):
         summary_first_sentence += "."
     
-    # Why section - use structured reasons (already deduplicated and prioritized)
-    # We should always have at least 3 reasons from compute_playability (5 factors)
-    unique_bullets = why_bullets[:3]
-    # Fallback only if we somehow have fewer than 3 reasons (shouldn't happen)
-    if len(unique_bullets) < 3:
-        # Use factor_scores to generate fallback reasons
+    # Why section - use formatted bullets array (2-4 bullets)
+    # Ensure we have 2-4 bullets
+    why_bullets_final = why_bullets[:4] if len(why_bullets) >= 2 else why_bullets
+    
+    # Fallback if we somehow have fewer than 2 bullets
+    if len(why_bullets_final) < 2:
         factor_scores = playability.get("factor_scores", {})
+        factor_display_names = {
+            "weather": "Weather",
+            "ground": "Ground",
+            "busyness": "Course pressure",
+            "suitability": "Course suitability",
+            "daylight": "Daylight"
+        }
         sorted_factors = sorted(factor_scores.items(), key=lambda x: x[1], reverse=(verdict == "Play"))
         for factor, score in sorted_factors:
-            if len(unique_bullets) >= 3:
+            if len(why_bullets_final) >= 2:
                 break
             fallback = None
-            # Generate reason from factor and score
+            # Generate reason from factor
+            factor_display = factor_display_names.get(factor, factor.capitalize())
             if factor == "weather" and score < 50:
-                fallback = f"{weather_rating} conditions affect ball flight, visibility, and overall comfort"
+                fallback = f"{factor_display}: {weather_label.lower()} conditions affect ball flight, visibility, and overall comfort, so expect more challenging shot control."
             elif factor == "ground" and score < 50:
-                fallback = f"{ground_label_display} makes approach shots and recovery shots more difficult"
+                fallback = f"{factor_display}: {ground_label_display.lower()} makes approach shots and recovery shots more difficult, so distance control will be harder."
             elif factor == "busyness" and score < 50:
-                fallback = f"{busyness_rating} conditions increase waiting between shots, which can affect rhythm"
+                fallback = f"{factor_display}: {busyness_label.lower()} conditions increase waiting between shots, so rhythm and pace may be disrupted."
             elif factor == "suitability" and score < 50:
-                fallback = f"Course conditions add unnecessary challenge for your handicap of {handicap}"
+                fallback = f"{factor_display}: Course conditions add unnecessary challenge for your handicap of {handicap}, so expect a more difficult round."
             elif factor == "daylight" and score < 50:
-                fallback = f"{daylight_label} means finishing the round may be tight"
-            if fallback and fallback not in unique_bullets:
-                unique_bullets.append(fallback)
+                fallback = f"{factor_display}: {daylight_label.lower()} means finishing the round may be tight, so pace of play is critical."
+            if fallback and fallback.lower() not in [b.lower() for b in why_bullets_final]:
+                why_bullets_final.append(fallback)
     
-    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in unique_bullets[:3]]) + '</ul>'
+    # Limit to 4 bullets max
+    why_bullets_final = why_bullets_final[:4]
     
-    # What to do instead - convert to bullets (always use bullets for better scanability)
-    # Split by periods and filter out empty strings
-    what_sentences = [s.strip() for s in what_to_do.split('.') if s.strip()]
-    # If it's a single long sentence, try splitting by common separators
-    if len(what_sentences) == 1 and len(what_to_do) > 80:
-        # Try splitting by common patterns
-        what_sentences = [s.strip() for s in what_to_do.replace('.', '|').split('|') if s.strip()]
-    # Ensure we have 2-3 bullets max
-    if len(what_sentences) > 3:
-        what_sentences = what_sentences[:3]
-    # Deduplicate bullets
-    seen_what = set()
-    unique_what_bullets = []
-    for sentence in what_sentences:
-        sentence_lower = sentence.lower()
-        if sentence_lower not in seen_what:
-            unique_what_bullets.append(sentence)
-            seen_what.add(sentence_lower)
-    # Always format as bullets
-    if unique_what_bullets:
-        what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{sentence}{"." if not sentence.endswith(".") else ""}</li>' for sentence in unique_what_bullets]) + '</ul>'
-    else:
-        what_bullets_html = f'<ul class="what-bullets"><li>{what_to_do}</li></ul>'
+    # Render as HTML
+    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets_final]) + '</ul>'
+    
+    # What to do instead - use formatted bullets array (2-4 bullets)
+    # Ensure we have 2-4 bullets
+    what_to_do_bullets_final = what_to_do_bullets[:4] if len(what_to_do_bullets) >= 2 else what_to_do_bullets
+    
+    # Render as HTML
+    what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
     
     # What section title
     what_section_title = "What to expect" if play_recommendation == "Play" else "What to do instead"
     
     # Verdict banner with status pill, course name and helper text
-    # Use structured verdict (already set above)
+    # Use structured verdict (binary decision)
     if verdict == "Play":
         verdict_banner_class = "play"
-    elif verdict == "Borderline":
-        verdict_banner_class = "dont-play"  # Use red for borderline (not ideal)
     else:  # Not ideal
         verdict_banner_class = "dont-play"
     verdict_banner_html = f"""
@@ -3465,7 +3632,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="target"></i>
-                        <span>Suitability</span>
+                        <span>Handicap fit</span>
                     </div>
                     <div class="detail-value">{suitability_label_display}</div>
                 </div>
@@ -3563,23 +3730,24 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             }}
             .page-title {{
                 color: var(--alba-cream);
-                font-weight: 500;
-                font-size: 20px;
-                margin-bottom: 4px;
-                letter-spacing: -0.2px;
+                font-weight: 700;
+                font-size: clamp(44px, 48px, 48px);
+                line-height: 1.1;
+                margin-bottom: 8px;
+                letter-spacing: -0.5px;
             }}
             .page-subtitle {{
                 color: rgba(255, 247, 224, 0.7);
                 font-weight: 300;
-                font-size: 13px;
+                font-size: 17px;
                 line-height: 1.4;
             }}
             @media (max-width: 640px) {{
                 .page-title {{
-                    font-size: 18px;
+                    font-size: 32px;
                 }}
                 .page-subtitle {{
-                    font-size: 12px;
+                    font-size: 16px;
                 }}
             }}
             .verdict-banner {{
@@ -4085,5 +4253,5 @@ if __name__ == "__main__":
 #   Day: Today
 #   Time: Afternoon
 #   Expected: Weather Mixed, Ground Mixed, Busyness Moderate/Busy,
-#             Handicap Suitability Borderline/Well suited, Recommendation depends on weather
+#             Handicap Suitability Well suited/Not ideal, Recommendation depends on weather
 
