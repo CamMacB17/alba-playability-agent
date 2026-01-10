@@ -2038,23 +2038,45 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in unique_bullets[:3]]) + '</ul>'
     
-    # What to do instead - convert to bullets if it contains multiple sentences
+    # What to do instead - convert to bullets (always use bullets for better scanability)
+    # Split by periods and filter out empty strings
     what_sentences = [s.strip() for s in what_to_do.split('.') if s.strip()]
-    if len(what_sentences) > 1:
-        what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{sentence}.</li>' for sentence in what_sentences]) + '</ul>'
+    # If it's a single long sentence, try splitting by common separators
+    if len(what_sentences) == 1 and len(what_to_do) > 80:
+        # Try splitting by common patterns
+        what_sentences = [s.strip() for s in what_to_do.replace('.', '|').split('|') if s.strip()]
+    # Ensure we have 2-3 bullets max
+    if len(what_sentences) > 3:
+        what_sentences = what_sentences[:3]
+    # Deduplicate bullets
+    seen_what = set()
+    unique_what_bullets = []
+    for sentence in what_sentences:
+        sentence_lower = sentence.lower()
+        if sentence_lower not in seen_what:
+            unique_what_bullets.append(sentence)
+            seen_what.add(sentence_lower)
+    # Always format as bullets
+    if unique_what_bullets:
+        what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{sentence}{"." if not sentence.endswith(".") else ""}</li>' for sentence in unique_what_bullets]) + '</ul>'
     else:
-        what_bullets_html = f'<p>{what_to_do}</p>'
+        what_bullets_html = f'<ul class="what-bullets"><li>{what_to_do}</li></ul>'
     
     # What section title
     what_section_title = "What to expect" if play_recommendation == "Play" else "What to do instead"
     
-    # Verdict banner with course name and helper text
+    # Verdict banner with status pill, course name and helper text
     verdict_banner_class = "play" if play_recommendation == "Play" else "dont-play"
+    status_pill_text = "Play" if play_recommendation == "Play" else "Not ideal"
     verdict_banner_html = f"""
         <div class="verdict-banner {verdict_banner_class}">
-            <div class="verdict-title">{verdict_title}</div>
-            <div class="verdict-course">{course}</div>
-            <div class="verdict-helper">{summary_first_sentence}</div>
+            <div class="verdict-content">
+                <div class="status-pill">{status_pill_text}</div>
+                <div class="verdict-info">
+                    <div class="verdict-course">{course}</div>
+                    <div class="verdict-helper">{summary_first_sentence}</div>
+                </div>
+            </div>
         </div>
     """
     
@@ -2064,23 +2086,38 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             <summary class="details-summary">Show details</summary>
             <div class="details-grid">
                 <div class="detail-item">
-                    <div class="detail-label">Weather</div>
+                    <div class="detail-label">
+                        <i data-lucide="cloud-rain"></i>
+                        <span>Weather</span>
+                    </div>
                     <div class="detail-value">{weather_rating}</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Ground</div>
+                    <div class="detail-label">
+                        <i data-lucide="droplets"></i>
+                        <span>Ground</span>
+                    </div>
                     <div class="detail-value">{ground_condition}</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Busyness</div>
+                    <div class="detail-label">
+                        <i data-lucide="users"></i>
+                        <span>Busyness</span>
+                    </div>
                     <div class="detail-value">{busyness_rating}</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Suitability</div>
+                    <div class="detail-label">
+                        <i data-lucide="target"></i>
+                        <span>Suitability</span>
+                    </div>
                     <div class="detail-value">{handicap_suitability}</div>
                 </div>
                 <div class="detail-item">
-                    <div class="detail-label">Price</div>
+                    <div class="detail-label">
+                        <i data-lucide="pound-sterling"></i>
+                        <span>Price</span>
+                    </div>
                     <div class="detail-value">{price_label_display}</div>
                 </div>
             </div>
@@ -2099,6 +2136,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://unpkg.com/lucide@latest"></script>
         <style>
             :root {{
                 --alba-cream: #FFF7E0;
@@ -2142,9 +2180,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             }}
             .verdict-banner {{
                 border-radius: 8px;
-                padding: 20px;
+                padding: 14px 18px;
                 margin-bottom: 16px;
-                text-align: center;
             }}
             .verdict-banner.play {{
                 background: var(--alba-green);
@@ -2152,34 +2189,62 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             .verdict-banner.dont-play {{
                 background: var(--alba-red);
             }}
-            .verdict-title {{
-                color: var(--alba-cream);
+            .verdict-content {{
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+            }}
+            .status-pill {{
+                display: inline-block;
+                padding: 4px 10px;
+                border-radius: 12px;
+                font-size: 11px;
                 font-weight: 600;
-                font-size: 24px;
-                letter-spacing: -0.3px;
-                margin-bottom: 8px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                background: rgba(0, 0, 0, 0.2);
+                color: var(--alba-cream);
+                white-space: nowrap;
+                flex-shrink: 0;
+            }}
+            .verdict-info {{
+                flex: 1;
+                min-width: 0;
             }}
             .verdict-course {{
                 color: var(--alba-cream);
                 font-weight: 500;
                 font-size: 16px;
-                margin-bottom: 8px;
+                margin-bottom: 6px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }}
             .verdict-helper {{
                 color: rgba(255, 247, 224, 0.9);
                 font-weight: 300;
                 font-size: 13px;
                 line-height: 1.5;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
             }}
             @media (max-width: 640px) {{
-                .verdict-title {{
-                    font-size: 20px;
+                .verdict-banner {{
+                    padding: 12px 16px;
+                }}
+                .verdict-content {{
+                    flex-direction: column;
+                    gap: 10px;
                 }}
                 .verdict-course {{
                     font-size: 14px;
+                    white-space: normal;
                 }}
                 .verdict-helper {{
                     font-size: 12px;
+                    -webkit-line-clamp: 3;
                 }}
             }}
             .cards-grid {{
@@ -2206,17 +2271,17 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             }}
             .card-title {{
-                font-weight: 600;
+                font-weight: 700;
                 color: var(--alba-cream);
-                margin-bottom: 12px;
-                font-size: 16px;
-                letter-spacing: -0.2px;
+                margin-bottom: 14px;
+                font-size: 14px;
+                letter-spacing: -0.1px;
             }}
             .card-content {{
                 color: var(--alba-cream);
-                font-size: 15px;
+                font-size: 14px;
                 font-weight: 400;
-                line-height: 1.6;
+                line-height: 1.7;
             }}
             .why-bullets, .what-bullets {{
                 list-style: none;
@@ -2224,10 +2289,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 margin: 0;
             }}
             .why-bullets li, .what-bullets li {{
-                padding: 6px 0;
+                padding: 8px 0;
                 padding-left: 20px;
                 position: relative;
-                line-height: 1.6;
+                line-height: 1.75;
             }}
             .why-bullets li:before {{
                 content: "•";
@@ -2250,55 +2315,109 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             }}
             .details-card {{
                 grid-column: 1 / -1;
-                padding: 18px 20px;
                 background: #303035;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 8px;
                 box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+                overflow: hidden;
             }}
             .details-summary {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+                padding: 14px 18px;
                 font-weight: 600;
                 color: var(--alba-cream);
-                font-size: 16px;
+                font-size: 15px;
                 cursor: pointer;
                 list-style: none;
-                letter-spacing: -0.2px;
+                letter-spacing: -0.1px;
+                background: transparent;
+                border: none;
+                transition: background-color 0.2s ease;
+            }}
+            .details-summary:hover {{
+                background: rgba(255, 255, 255, 0.03);
             }}
             .details-summary::-webkit-details-marker {{
                 display: none;
             }}
-            .details-summary::before {{
-                content: "▶ ";
+            .details-summary::after {{
+                content: "▶";
                 display: inline-block;
-                margin-right: 8px;
-                transition: transform 0.2s ease;
+                font-size: 12px;
+                transition: transform 0.3s ease;
+                margin-left: auto;
             }}
-            .details-card[open] .details-summary::before {{
+            .details-card[open] .details-summary::after {{
                 transform: rotate(90deg);
             }}
             .details-grid {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 16px;
-                margin-top: 16px;
+                grid-template-columns: repeat(5, 1fr);
+                gap: 12px;
+                padding: 16px 18px;
+                animation: slideDown 0.3s ease-out;
+            }}
+            @keyframes slideDown {{
+                from {{
+                    opacity: 0;
+                    transform: translateY(-8px);
+                }}
+                to {{
+                    opacity: 1;
+                    transform: translateY(0);
+                }}
+            }}
+            @media (max-width: 900px) {{
+                .details-grid {{
+                    grid-template-columns: repeat(2, 1fr);
+                }}
+            }}
+            @media (max-width: 640px) {{
+                .details-grid {{
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 10px;
+                    padding: 14px 16px;
+                }}
             }}
             .detail-item {{
-                padding: 12px;
+                padding: 10px 12px;
                 background: rgba(0, 0, 0, 0.2);
                 border-radius: 6px;
+                border: 1px solid transparent;
+                transition: border-color 0.2s ease, background-color 0.2s ease;
+            }}
+            .detail-item:hover {{
+                border-color: rgba(247, 130, 34, 0.3);
+                background: rgba(0, 0, 0, 0.25);
             }}
             .detail-label {{
+                display: flex;
+                align-items: center;
+                gap: 8px;
                 font-weight: 500;
-                color: rgba(255, 247, 224, 0.7);
-                font-size: 11px;
+                color: rgba(255, 247, 224, 0.6);
+                font-size: 10px;
                 text-transform: uppercase;
-                letter-spacing: 0.5px;
-                margin-bottom: 4px;
+                letter-spacing: 0.8px;
+                margin-bottom: 6px;
+            }}
+            .detail-label i {{
+                width: 19px;
+                height: 19px;
+                opacity: 0.85;
+                color: inherit;
+            }}
+            .detail-label span {{
+                flex: 1;
             }}
             .detail-value {{
                 color: var(--alba-cream);
-                font-size: 15px;
-                font-weight: 500;
+                font-size: 16px;
+                font-weight: 600;
+                line-height: 1.4;
             }}
             .back-link {{
                 display: inline-block;
@@ -2340,15 +2459,34 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
         <script>
             (function() {{
+                function initIcons() {{
+                    if (typeof lucide !== 'undefined') {{
+                        lucide.createIcons();
+                    }}
+                }}
+                
+                // Initialize icons when DOM is ready
+                if (document.readyState === 'loading') {{
+                    document.addEventListener('DOMContentLoaded', initIcons);
+                }} else {{
+                    initIcons();
+                }}
+                
                 const detailsCard = document.querySelector('.details-card');
                 if (detailsCard) {{
                     const summary = detailsCard.querySelector('.details-summary');
                     if (summary) {{
+                        // Store original text content
+                        const showText = 'Show details';
+                        const hideText = 'Hide details';
+                        
                         detailsCard.addEventListener('toggle', function() {{
                             if (detailsCard.open) {{
-                                summary.textContent = 'Hide details';
+                                summary.textContent = hideText;
+                                // Reinitialize icons after details are opened
+                                setTimeout(initIcons, 10);
                             }} else {{
-                                summary.textContent = 'Show details';
+                                summary.textContent = showText;
                             }}
                         }});
                     }}
