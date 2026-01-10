@@ -6,6 +6,7 @@ from fastapi import FastAPI, Form, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
 import httpx
+from typing import Dict, Any
 
 app = FastAPI()
 
@@ -543,6 +544,18 @@ async def generate_explanation(assessment_data, force_llm=False):
             assessment_data["price_tier"],
             None  # tomorrow_forecast not needed for deterministic
         )
+
+
+@app.get("/debug/env")
+async def debug_env() -> Dict[str, Any]:
+    """
+    Debug endpoint to check environment variables.
+    Returns JSON with OpenAI API key status and LLM_SUMMARY flag value.
+    """
+    return {
+        "has_openai_key": bool(OPENAI_API_KEY),
+        "llm_summary_flag": os.getenv("LLM_SUMMARY", "")
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
