@@ -4,11 +4,12 @@ import asyncio
 import logging
 import subprocess
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Form, Query
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
 import httpx
 from typing import Dict, Any, Tuple
+from uuid import uuid4
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -456,7 +457,7 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
     return " ".join(parts)
 
 
-async def generate_explanation_llm(assessment_data):
+async def generate_explanation_llm(assessment_data, request_id: str = None):
     """
     Generate explanation using OpenAI LLM with structured input.
     Raises exception if API call fails (to be caught by caller).
@@ -473,6 +474,7 @@ async def generate_explanation_llm(assessment_data):
         - price_tier: str (£/££/£££)
         - verdict: str (Play/Don't play)
         - next_action: str
+    request_id: unique request identifier for logging
     """
     # Read OPENAI_API_KEY from environment
     api_key = os.getenv("OPENAI_API_KEY")
@@ -513,7 +515,8 @@ Assessment data:
 Provide a concise paragraph that helps the golfer understand the conditions and suitability based solely on these computed ratings."""
     
     # Log immediately before the API call
-    logger.info("Calling OpenAI summary")
+    request_id_str = f" request_id={request_id}" if request_id else ""
+    logger.info(f"Calling OpenAI summary{request_id_str}")
     
     # Make synchronous API call in a thread pool to avoid blocking
     try:
@@ -535,7 +538,7 @@ Provide a concise paragraph that helps the golfer understand the conditions and 
         )
         
         explanation = response.choices[0].message.content.strip()
-        logger.info("OpenAI summary succeeded")
+        logger.info(f"OpenAI summary succeeded{request_id_str}")
         return explanation
     except Exception as e:
         # Log the exception message before re-raising
@@ -779,13 +782,14 @@ async def read_root():
     """
 
 
-async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None):
+async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None, request_id: str = None):
     """
     Shared function to calculate ratings and render assessment results.
     
     force_llm: parsed llm query parameter (boolean)
     llm_effective_enabled: computed effective LLM enabled status
     llm_raw: raw llm query parameter value for debugging
+    request_id: unique request identifier for logging
     """
     # Find the course to get coordinates and properties
     course_data = find_course_by_name(course)
@@ -873,14 +877,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             "next_action": added_action
         }
         
-        # Log before calling OpenAI
-        logger.info("Calling OpenAI summary")
-        
         try:
-            llm_summary = await generate_explanation_llm(assessment_data)
+            llm_summary = await generate_explanation_llm(assessment_data, request_id)
             final_summary = llm_summary
             summary_mode = "LLM"
-            logger.info("OpenAI summary succeeded")
         except Exception as e:
             # Log the exception and keep final_summary unchanged (stays as deterministic)
             logger.error(f"OpenAI summary failed: {str(e)}", exc_info=True)
@@ -1131,15 +1131,18 @@ async def assess_get(
     llm_raw = llm
     llm_force = parse_llm_parameter(llm)
     
+    # Generate unique request ID for this request
+    request_id = str(uuid4())
+    
     # Compute llm_effective_enabled = has_openai_key and (llm_force or env_flag_true)
     has_openai_key = bool(OPENAI_API_KEY)
     llm_effective_enabled = has_openai_key and (llm_force or LLM_SUMMARY_ENABLED)
     
     # Log assessment start with debug info
-    logger.info(f"ASSESS: llm_query={llm_raw} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
+    logger.info(f"ASSESS: request_id={request_id} llm_query={llm_raw} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
     
     # Render results
-    return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw)
+    return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id)
 
 
 if __name__ == "__main__":
