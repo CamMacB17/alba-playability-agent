@@ -3040,17 +3040,24 @@ async def read_root():
             .course-input-wrapper {{
                 position: relative;
             }}
+            .course-helper-row {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                margin-top: 4px;
+            }}
             .course-helper {{
                 font-size: 11px;
                 color: rgba(255, 247, 224, 0.5);
-                margin-top: 4px;
                 font-weight: 300;
+                flex-shrink: 0;
             }}
             .course-chips {{
                 display: flex;
                 flex-wrap: wrap;
+                justify-content: flex-end;
                 gap: 4px;
-                margin-top: 6px;
             }}
             .course-chip {{
                 display: inline-block;
@@ -3188,11 +3195,13 @@ async def read_root():
                                     <input type="text" id="course" name="course" placeholder="Start typing a course name" required autocomplete="off">
                                     <div id="autocomplete-suggestions" class="autocomplete-suggestions"></div>
                                 </div>
-                                <div class="course-helper">Start typing a course name</div>
-                                <div class="course-chips">
-                                    <span class="course-chip" data-course="Trent Park Golf Club">Trent Park</span>
-                                    <span class="course-chip" data-course="Richmond Park Golf Course">Richmond Park</span>
-                                    <span class="course-chip" data-course="Dukes Meadows Golf Course">Dukes Meadows</span>
+                                <div class="course-helper-row">
+                                    <div class="course-helper">Start typing a course name</div>
+                                    <div class="course-chips">
+                                        <span class="course-chip" data-course="Trent Park Golf Club">Trent Park</span>
+                                        <span class="course-chip" data-course="Richmond Park Golf Course">Richmond Park</span>
+                                        <span class="course-chip" data-course="Dukes Meadows Golf Course">Dukes Meadows</span>
+                                    </div>
                                 </div>
                             </div>
                             <div id="course-error" class="error-message">Please select a course</div>
