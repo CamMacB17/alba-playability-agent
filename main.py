@@ -1,11 +1,25 @@
 import json
 import os
+import asyncio
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, Query
 from fastapi.responses import HTMLResponse
 import httpx
 
 app = FastAPI()
+
+# Feature flag and API key for OpenAI
+LLM_SUMMARY_ENABLED = os.getenv("LLM_SUMMARY", "false").lower() == "true"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Initialize OpenAI client if API key is available
+openai_client = None
+if OPENAI_API_KEY and LLM_SUMMARY_ENABLED:
+    try:
+        from openai import AsyncOpenAI
+        openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=10.0)
+    except ImportError:
+        openai_client = None
 
 # Fallback demo courses if courses.json is missing or invalid
 DEMO_COURSES = [
@@ -392,7 +406,7 @@ def generate_added_action(play_recommendation, time_of_day, busyness_rating, wea
         return " ".join(suggestions)
 
 
-def generate_explanation(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_tier, tomorrow_forecast):
+def generate_explanation_deterministic(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_tier, tomorrow_forecast):
     """
     Generate deterministic explanation paragraph summarising all ratings.
     """
@@ -411,6 +425,123 @@ def generate_explanation(weather_rating, ground_condition, busyness_rating, hand
     parts.append(f"The price tier is {price_tier} (typical estimate).")
     
     return " ".join(parts)
+
+
+async def generate_explanation_llm(assessment_data):
+    """
+    Generate explanation using OpenAI LLM with structured input.
+    Falls back to deterministic if API call fails.
+    
+    assessment_data: dict containing:
+        - course_name: str
+        - day: str (Today/Tomorrow)
+        - time_of_day: str
+        - handicap: int
+        - weather_rating: str (Good/Mixed/Poor)
+        - ground_rating: str (Firm/Mixed/Soft/Soggy)
+        - busyness_rating: str (Quiet/Moderate/Busy/Very busy)
+        - suitability_rating: str (Well suited/Borderline/Not ideal today)
+        - price_tier: str (£/££/£££)
+        - verdict: str (Play/Don't play)
+        - next_action: str
+    """
+    if not openai_client:
+        return generate_explanation_deterministic(
+            assessment_data["weather_rating"],
+            assessment_data["ground_rating"],
+            assessment_data["busyness_rating"],
+            assessment_data["suitability_rating"],
+            assessment_data["price_tier"],
+            None  # tomorrow_forecast not in structured data
+        )
+    
+    try:
+        # Create structured input as JSON
+        structured_input = {
+            "course_name": assessment_data["course_name"],
+            "day": assessment_data["day"],
+            "time_of_day": assessment_data["time_of_day"],
+            "handicap": assessment_data["handicap"],
+            "weather_rating": assessment_data["weather_rating"],
+            "ground_rating": assessment_data["ground_rating"],
+            "busyness_rating": assessment_data["busyness_rating"],
+            "suitability_rating": assessment_data["suitability_rating"],
+            "price_tier": assessment_data["price_tier"],
+            "verdict": assessment_data["verdict"],
+            "next_action": assessment_data["next_action"]
+        }
+        
+        prompt = f"""Summarise this golf course playability assessment in one short paragraph using British English. 
+
+You must only summarise the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes.
+
+Assessment data:
+{json.dumps(structured_input, indent=2)}
+
+Provide a concise paragraph that helps the golfer understand the conditions and suitability based solely on these computed ratings."""
+        
+        # Make async API call with timeout
+        response = await asyncio.wait_for(
+            openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful assistant that summarises golf course playability assessments. Use British English. Be concise and factual. Only restate the provided computed values. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.3
+            ),
+            timeout=10.0
+        )
+        
+        explanation = response.choices[0].message.content.strip()
+        return explanation
+        
+    except (asyncio.TimeoutError, Exception):
+        # Fall back to deterministic on any error (timeout, API error, etc.)
+        return generate_explanation_deterministic(
+            assessment_data["weather_rating"],
+            assessment_data["ground_rating"],
+            assessment_data["busyness_rating"],
+            assessment_data["suitability_rating"],
+            assessment_data["price_tier"],
+            None
+        )
+
+
+async def generate_explanation(assessment_data, force_llm=False):
+    """
+    Generate explanation paragraph. Uses LLM if enabled and available, otherwise uses deterministic version.
+    
+    assessment_data: dict containing all required fields for structured LLM input
+    force_llm: if True, force LLM usage (if API key available)
+    """
+    # Check if LLM should be used
+    use_llm = False
+    if force_llm:
+        # Force LLM if API key is available
+        if openai_client:
+            use_llm = True
+        else:
+            # Return special message if LLM requested but unavailable
+            return "LLM summary unavailable on this deployment."
+    elif LLM_SUMMARY_ENABLED and openai_client:
+        use_llm = True
+    
+    if use_llm:
+        return await generate_explanation_llm(assessment_data)
+    else:
+        return generate_explanation_deterministic(
+            assessment_data["weather_rating"],
+            assessment_data["ground_rating"],
+            assessment_data["busyness_rating"],
+            assessment_data["suitability_rating"],
+            assessment_data["price_tier"],
+            None  # tomorrow_forecast not needed for deterministic
+        )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -521,7 +652,8 @@ async def assess(
     course: str = Form(...),
     handicap: int = Form(...),
     day: str = Form(...),
-    time_of_day: str = Form(...)
+    time_of_day: str = Form(...),
+    llm: int = Query(0, description="Set to 1 to force LLM summary")
 ):
     # Find the course to get coordinates and properties
     course_data = find_course_by_name(course)
@@ -579,11 +711,24 @@ async def assess(
         play_recommendation, time_of_day, busyness_rating, weather_rating, handicap_suitability
     )
     
-    explanation = generate_explanation(
-        weather_rating, ground_condition, busyness_rating, handicap_suitability,
-        course_data["price_tier"] if course_data else "££",
-        tomorrow_forecast
-    )
+    # Create structured assessment data for LLM
+    assessment_data = {
+        "course_name": course,
+        "day": day,
+        "time_of_day": time_of_day,
+        "handicap": handicap,
+        "weather_rating": weather_rating,
+        "ground_rating": ground_condition,
+        "busyness_rating": busyness_rating,
+        "suitability_rating": handicap_suitability,
+        "price_tier": course_data["price_tier"] if course_data else "££",
+        "verdict": play_recommendation,
+        "next_action": added_action
+    }
+    
+    # Check if LLM is requested via query parameter
+    force_llm = llm == 1
+    explanation = await generate_explanation(assessment_data, force_llm=force_llm)
     
     # Build HTML sections in exact order specified
     # 1. Weather rating
