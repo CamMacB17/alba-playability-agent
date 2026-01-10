@@ -474,8 +474,19 @@ async def generate_explanation_llm(assessment_data):
         - verdict: str (Play/Don't play)
         - next_action: str
     """
-    if not openai_client:
-        raise ValueError("OpenAI client not available")
+    # Read OPENAI_API_KEY from environment
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY missing")
+    
+    # Import OpenAI (synchronous client)
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ValueError("OpenAI package not installed")
+    
+    # Instantiate client
+    client = OpenAI(api_key=api_key)
     
     # Create structured input as JSON
     structured_input = {
@@ -501,13 +512,14 @@ Assessment data:
 
 Provide a concise paragraph that helps the golfer understand the conditions and suitability based solely on these computed ratings."""
     
-    # Log before calling OpenAI
-    logger.info("LLM: calling OpenAI now")
+    # Log immediately before the API call
+    logger.info("Calling OpenAI summary")
     
-    # Make async API call with timeout
+    # Make synchronous API call in a thread pool to avoid blocking
     try:
         response = await asyncio.wait_for(
-            openai_client.chat.completions.create(
+            asyncio.to_thread(
+                client.chat.completions.create,
                 model="gpt-4o-mini",
                 messages=[
                     {
@@ -523,11 +535,11 @@ Provide a concise paragraph that helps the golfer understand the conditions and 
         )
         
         explanation = response.choices[0].message.content.strip()
-        logger.info("LLM: success")
+        logger.info("OpenAI summary succeeded")
         return explanation
     except Exception as e:
         # Log the exception message before re-raising
-        logger.error(f"LLM: OpenAI call failed: {str(e)}", exc_info=True)
+        logger.error(f"OpenAI summary failed: {str(e)}", exc_info=True)
         raise
 
 
