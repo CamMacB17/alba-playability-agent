@@ -94,25 +94,68 @@ def find_course_by_name(course_name: str):
     return None
 
 
-def load_courses_from_data() -> List[Dict[str, str]]:
+def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, str]]:
     """
     Load courses from courses.json using absolute path.
     Tries BASE_DIR/courses.json first, then falls back to BASE_DIR/data/courses.json.
     Returns list of course dicts with name and area, or empty list on error.
+    
+    If debug_info dict is provided, populates debug fields for the file that was attempted.
     """
     # Try primary path first (root courses.json)
     for courses_path in [COURSES_PATH, COURSES_PATH_FALLBACK]:
         try:
             if courses_path.exists():
-                with open(courses_path, "r", encoding="utf-8") as f:
-                    courses = json.load(f)
-                    # Validate that courses is a list
-                    if isinstance(courses, list):
-                        # Validate each course has required fields
-                        required_fields = ["name", "area"]
-                        if all(all(field in course for field in required_fields) for course in courses):
-                            return courses
+                # Collect debug info if requested
+                if debug_info is not None:
+                    try:
+                        file_size = courses_path.stat().st_size
+                        debug_info["file_size_bytes"] = file_size
+                        
+                        with open(courses_path, "r", encoding="utf-8") as f:
+                            file_content = f.read()
+                            debug_info["file_head"] = file_content[:200]
+                            f.seek(0)
+                            courses = json.load(f)
+                    except Exception as e:
+                        debug_info["parse_error"] = str(e)
+                        debug_info["detected_format"] = "unknown"
+                        logger.error(f"Failed to load courses from {courses_path}: {str(e)}", exc_info=True)
+                        continue
+                else:
+                    with open(courses_path, "r", encoding="utf-8") as f:
+                        courses = json.load(f)
+                
+                # Validate that courses is a list
+                if isinstance(courses, list):
+                    # Detect format
+                    if debug_info is not None:
+                        debug_info["parse_error"] = ""
+                        if len(courses) > 0:
+                            first_item = courses[0]
+                            if isinstance(first_item, dict):
+                                required_fields = ["name", "area"]
+                                if all(field in first_item for field in required_fields):
+                                    debug_info["detected_format"] = "list_of_objects"
+                                else:
+                                    debug_info["detected_format"] = "unknown"
+                            elif isinstance(first_item, str):
+                                debug_info["detected_format"] = "list_of_strings"
+                            else:
+                                debug_info["detected_format"] = "unknown"
+                        else:
+                            debug_info["detected_format"] = "unknown"
+                    
+                    # Validate each course has required fields
+                    required_fields = ["name", "area"]
+                    if all(all(field in course for field in required_fields) for course in courses):
+                        return courses
+                elif debug_info is not None:
+                    debug_info["detected_format"] = "unknown"
         except (json.JSONDecodeError, IOError, OSError) as e:
+            if debug_info is not None:
+                debug_info["parse_error"] = str(e)
+                debug_info["detected_format"] = "unknown"
             logger.error(f"Failed to load courses from {courses_path}: {str(e)}", exc_info=True)
     
     return []
@@ -951,7 +994,7 @@ async def get_courses(
     query = q.strip().lower()
     
     # Load courses from courses.json (tries root first, then data/ subdirectory)
-    courses = load_courses_from_data()
+    courses = load_courses_from_data(debug_info if debug_mode else None)
     courses_count = len(courses)
     
     if debug_mode:
