@@ -372,10 +372,17 @@ def calculate_daylight_feasibility(time_of_day: str, busyness_rating: str, weath
         recommended_holes = 9
         daylight_label = "Not feasible"
     
+    # Calculate finish time estimate
+    expected_duration = duration_18 if recommended_holes == 18 else duration_9
+    finish_datetime = tee_datetime + timedelta(minutes=expected_duration)
+    finish_time_estimate = finish_datetime.strftime("%H:%M")
+    
     return {
         "recommended_holes": recommended_holes,
         "daylight_label": daylight_label,
-        "daylight_minutes": daylight_minutes
+        "daylight_minutes": daylight_minutes,
+        "finish_time_estimate": finish_time_estimate,
+        "sunset_time": sunset_time_str
     }
 
 
@@ -999,6 +1006,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     )
     recommended_holes = daylight_info["recommended_holes"]
     daylight_label = daylight_info["daylight_label"]
+    finish_time_estimate = daylight_info["finish_time_estimate"]
+    sunset_time = daylight_info["sunset_time"]
     
     play_recommendation = determine_play_recommendation(
         weather_rating, ground_condition, busyness_rating, handicap_suitability, daylight_label
@@ -1096,6 +1105,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <div class="result-item">
             <div class="result-label">Daylight:</div>
             <div class="result-value">{daylight_label}</div>
+        </div>
+        <div class="result-item">
+            <div class="result-label">Timing:</div>
+            <div class="result-value">Estimated finish: {finish_time_estimate}, Sunset: {sunset_time}</div>
         </div>
     """
     
