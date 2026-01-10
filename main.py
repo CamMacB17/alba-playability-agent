@@ -501,6 +501,9 @@ Assessment data:
 
 Provide a concise paragraph that helps the golfer understand the conditions and suitability based solely on these computed ratings."""
     
+    # Log before calling OpenAI
+    logger.info("LLM: calling OpenAI now")
+    
     # Make async API call with timeout
     response = await asyncio.wait_for(
         openai_client.chat.completions.create(
@@ -519,6 +522,7 @@ Provide a concise paragraph that helps the golfer understand the conditions and 
     )
     
     explanation = response.choices[0].message.content.strip()
+    logger.info("LLM: success")
     return explanation
 
 
@@ -545,7 +549,7 @@ async def generate_explanation(assessment_data, force_llm=False) -> Tuple[str, s
             return explanation_with_marker, "LLM"
         except Exception as e:
             # Log the exception message
-            logger.error(f"OpenAI API call failed: {str(e)}")
+            logger.error(f"LLM: failed: {str(e)}")
             # Fall back silently to deterministic on any error
             pass
     
@@ -835,20 +839,17 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     """
     
     # 5. Explanation paragraph
-    # Only show summary mode line when llm_effective_enabled is true
-    if llm_effective_enabled:
-        summary_mode_text = f"Summary mode: {summary_mode}"
-        explanation_html = f"""
-        <div class="result-item">
-            <div class="summary-mode">{summary_mode_text}</div>
-            <div class="result-label">Summary:</div>
-            <div class="result-value">{explanation}</div>
-        </div>
-    """
+    # Determine mode badge text
+    if summary_mode == "LLM":
+        mode_badge_text = "Mode: LLM"
+    elif summary_mode == "Deterministic (LLM failed)":
+        mode_badge_text = "Mode: Deterministic (LLM failed)"
     else:
-        explanation_html = f"""
+        mode_badge_text = "Mode: Deterministic"
+    
+    explanation_html = f"""
         <div class="result-item">
-            <div class="result-label">Summary:</div>
+            <div class="result-label">Summary: <span class="mode-badge">{mode_badge_text}</span></div>
             <div class="result-value">{explanation}</div>
         </div>
     """
@@ -910,6 +911,18 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 color: #888;
                 font-style: italic;
                 margin-bottom: 8px;
+            }}
+            .mode-badge {{
+                display: inline-block;
+                font-size: 10px;
+                padding: 2px 6px;
+                background-color: #e9ecef;
+                border: 1px solid #ced4da;
+                border-radius: 3px;
+                color: #495057;
+                font-weight: normal;
+                margin-left: 8px;
+                font-style: normal;
             }}
             a {{
                 display: inline-block;
@@ -988,8 +1001,15 @@ async def assess_get(
     if not all([course, handicap is not None, day, time_of_day]):
         return RedirectResponse(url="/", status_code=303)
     
-    # Render results
+    # Calculate llm_effective_enabled for logging
     force_llm = llm == 1
+    llm_effective_enabled = (force_llm or LLM_SUMMARY_ENABLED) and bool(openai_client)
+    has_openai_key = bool(OPENAI_API_KEY)
+    
+    # Log assessment start with debug info
+    logger.info(f"ASSESS: llm_query={llm} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
+    
+    # Render results
     return await render_assessment_results(course, handicap, day, time_of_day, force_llm)
 
 
