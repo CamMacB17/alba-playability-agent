@@ -568,7 +568,22 @@ def generate_added_action(play_recommendation, time_of_day, busyness_rating, wea
         return " ".join(suggestions)
 
 
-def generate_explanation_deterministic(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_tier, tomorrow_forecast, recommended_holes=None):
+def get_price_label(price_tier: str) -> str:
+    """
+    Convert price tier symbol to descriptive label.
+    Returns: "Affordable", "Mid range", "Expensive", or "Unknown"
+    """
+    if price_tier == "£":
+        return "Affordable"
+    elif price_tier == "££":
+        return "Mid range"
+    elif price_tier == "£££":
+        return "Expensive"
+    else:
+        return "Unknown"
+
+
+def generate_explanation_deterministic(weather_rating, ground_condition, busyness_rating, handicap_suitability, price_label, tomorrow_forecast, recommended_holes=None):
     """
     Generate deterministic explanation paragraph summarising all ratings.
     """
@@ -590,7 +605,7 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
         else:
             parts.append(f"{recommended_holes} holes is the safer call for daylight.")
     
-    parts.append(f"The price tier is {price_tier} (typical estimate).")
+    parts.append(f"The price tier is {price_label.lower()} (typical estimate).")
     
     return " ".join(parts)
 
@@ -609,7 +624,7 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         - ground_rating: str (Firm/Mixed/Soft/Soggy)
         - busyness_rating: str (Quiet/Moderate/Busy/Very busy)
         - suitability_rating: str (Well suited/Borderline/Not ideal today)
-        - price_tier: str (£/££/£££)
+        - price_label: str (Affordable/Mid range/Expensive)
         - verdict: str (Play/Don't play)
         - next_action: str
         - recommended_holes: int (18 or 9)
@@ -640,40 +655,89 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
         "ground_rating": assessment_data["ground_rating"],
         "busyness_rating": assessment_data["busyness_rating"],
         "suitability_rating": assessment_data["suitability_rating"],
-        "price_tier": assessment_data["price_tier"],
+        "price_label": assessment_data["price_label"],
         "verdict": assessment_data["verdict"],
         "next_action": assessment_data["next_action"],
         "recommended_holes": assessment_data.get("recommended_holes"),
         "daylight_label": assessment_data.get("daylight_label")
     }
     
-    # Extract time_of_day to ensure we don't suggest a different time
+    # Extract key values for prompt
     user_time_of_day = assessment_data["time_of_day"]
+    user_day = assessment_data["day"]
     verdict = assessment_data["verdict"]
     recommended_holes = assessment_data.get("recommended_holes")
+    next_action = assessment_data.get("next_action", "")
     
-    holes_text = ""
+    # Extract values for short descriptions
+    course_name = assessment_data["course_name"]
+    weather_rating = assessment_data["weather_rating"]
+    ground_rating = assessment_data["ground_rating"]
+    busyness_rating = assessment_data["busyness_rating"]
+    daylight_label = assessment_data.get("daylight_label", "")
+    price_label = assessment_data["price_label"]
+    
+    # Build daylight short description
+    daylight_short = ""
     if recommended_holes:
-        if recommended_holes == 18:
-            holes_text = f" Mention that {recommended_holes} holes looks feasible before sunset."
+        if daylight_label == "Plenty of light":
+            daylight_short = f"{recommended_holes} holes should work fine"
+        elif daylight_label == "Tight":
+            daylight_short = f"{recommended_holes} holes is tight but doable"
+        elif daylight_label == "Not feasible":
+            daylight_short = f"Not enough daylight for {recommended_holes} holes"
         else:
-            holes_text = f" Mention that {recommended_holes} holes is the safer call for daylight."
+            daylight_short = f"{recommended_holes} holes recommended"
     
-    prompt = f"""Write a one-paragraph summary (60-90 words) of this golf course playability assessment using British English.
+    # Build next action for sentence 3
+    next_step = ""
+    if verdict == "Don't play":
+        if recommended_holes == 9:
+            next_step = "9 holes at midday is the safer call, or try morning tomorrow"
+        else:
+            if user_day == "Today":
+                next_step = "Try morning tomorrow or a quieter course"
+            else:
+                next_step = "Try morning or a quieter course"
+    else:
+        # Use next_action if available, otherwise provide a generic positive action
+        next_step = assessment_data.get("next_action", "Enjoy your round")
+    
+    # Use double braces to escape in f-string
+    prompt = f"""Write a short, friendly paragraph following this EXACT structure. Use British English. You may rephrase slightly but must keep it casual and concise.
 
-Requirements:
-- Use exactly these computed labels: weather_rating="{assessment_data['weather_rating']}", ground_rating="{assessment_data['ground_rating']}", busyness_rating="{assessment_data['busyness_rating']}", suitability_rating="{assessment_data['suitability_rating']}", price_tier="{assessment_data['price_tier']}"
-- When relevant, mention recommended_holes: {recommended_holes if recommended_holes else 'N/A'}{holes_text}
-- Do not repeat the same word twice in a row (e.g., avoid "today today" or "course course")
-- Do not suggest a different time of day since the user has already chosen {user_time_of_day}
-- End with a short practical nudge aligned to the verdict: {verdict}
-- Do not invent facts, numbers, live prices, or live tee times
+REQUIRED STRUCTURE:
+
+Sentence 1: "Today at {course_name}, expect {{weather_short}} and {{ground_short}} ground."
+- weather_short: Use weather_rating="{weather_rating}" (Good/Mixed/Poor) - rephrase casually (e.g., "good weather", "mixed conditions", "poor conditions")
+- ground_short: Use ground_rating="{ground_rating}" (Firm/Mixed/Soft/Soggy) - rephrase casually (e.g., "firm", "mixed", "soft", "soggy")
+
+Sentence 2: "{{busyness_short}}. {{daylight_short}}."
+- busyness_short: Use busyness_rating="{busyness_rating}" (Quiet/Moderate/Busy/Very busy) - rephrase casually (e.g., "It's quiet", "Expect moderate crowds", "It'll be busy")
+- daylight_short: "{daylight_short}"
+
+Sentence 3: "Verdict: {verdict}. {{next_step}}."
+- verdict: Use exactly "{verdict}" (Play or Don't play)
+- next_step: "{next_step}"
+
+Optional Sentence 4: "Price: {price_label}."
+- price_label: Use exactly "{price_label}" (Affordable, Mid range, or Expensive)
+
+Tone:
+- Sound like a helpful golfer friend, casual and friendly
+- Use simple words
+- You may rephrase slightly but keep the structure and meaning
+
+Forbidden words:
+- Do not use: "rating", "resulting in", "advisable", "hindered", "feasible", "circumstances"
+- Do not mention "LLM" or the model
+- Do not repeat the same word twice in a row
 - Do not use ampersands or em dashes
 
 Assessment data:
 {json.dumps(structured_input, indent=2)}
 
-Write one paragraph (60-90 words) that summarises the conditions and ends with a practical nudge."""
+Write the paragraph following the exact structure above."""
     
     # Log immediately before the API call
     request_id_str = f" request_id={request_id}" if request_id else ""
@@ -688,11 +752,11 @@ Write one paragraph (60-90 words) that summarises the conditions and ends with a
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful assistant that writes concise golf course playability summaries. Use British English. Write exactly one paragraph of 60-90 words. Use the exact computed labels provided. Avoid repeating words consecutively. Do not suggest alternative times of day. End with a practical nudge aligned to the verdict. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
+                        "content": "You are a helpful golfer friend giving friendly advice about golf course conditions. Write in a conversational, friendly tone using second person ('you') and simple words. Write 2-4 sentences maximum. Use British English. Sound like a friend, not a report. Do not use formal words like 'rating', 'resulting in', 'advisable', 'hindered', 'feasible', or 'circumstances'. Do not mention LLM or the model. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
                     },
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=150,
+                max_tokens=120,
                 temperature=0.3
             ),
             timeout=10.0
@@ -739,12 +803,18 @@ async def generate_explanation(assessment_data, force_llm=False, llm_effective_e
             pass
     
     # Use deterministic explanation
+    # Convert price_tier to price_label if needed
+    price_label_value = assessment_data.get("price_label")
+    if not price_label_value:
+        price_tier_value = assessment_data.get("price_tier", "££")
+        price_label_value = get_price_label(price_tier_value)
+    
     deterministic_explanation = generate_explanation_deterministic(
         assessment_data["weather_rating"],
         assessment_data["ground_rating"],
         assessment_data["busyness_rating"],
         assessment_data["suitability_rating"],
-        assessment_data["price_tier"],
+        price_label_value,
         None  # tomorrow_forecast not needed for deterministic
     )
     
@@ -1017,13 +1087,17 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         play_recommendation, time_of_day, busyness_rating, weather_rating, handicap_suitability
     )
     
+    # Convert price_tier to price_label
+    price_tier_raw = course_data["price_tier"] if course_data else "££"
+    price_label = get_price_label(price_tier_raw)
+    
     # Set final_summary to deterministic by default
     final_summary = generate_explanation_deterministic(
         weather_rating,
         ground_condition,
         busyness_rating,
         handicap_suitability,
-        course_data["price_tier"] if course_data else "££",
+        price_label,
         tomorrow_forecast,
         recommended_holes
     )
@@ -1043,7 +1117,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             "ground_rating": ground_condition,
             "busyness_rating": busyness_rating,
             "suitability_rating": handicap_suitability,
-            "price_tier": course_data["price_tier"] if course_data else "££",
+            "price_label": price_label,
             "verdict": play_recommendation,
             "next_action": added_action,
             "recommended_holes": recommended_holes,
