@@ -6,6 +6,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, Form, Query, Request
+from starlette.requests import Request as StarletteRequest
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import urlencode
 import httpx
@@ -56,6 +57,11 @@ if OPENAI_API_KEY and LLM_SUMMARY_ENABLED:
         openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=10.0)
     except ImportError:
         openai_client = None
+
+# Alba app download URLs
+ALBA_IOS_URL = os.getenv("ALBA_IOS_URL", "https://apps.apple.com/app/alba")  # Placeholder
+ALBA_ANDROID_URL = os.getenv("ALBA_ANDROID_URL", "https://play.google.com/store/apps/details?id=com.alba")  # Placeholder
+ALBA_HOW_IT_WORKS_URL = os.getenv("ALBA_HOW_IT_WORKS_URL", "https://alba.app/how-it-works")  # Placeholder
 
 # Fallback demo courses if courses.json is missing or invalid
 DEMO_COURSES = [
@@ -943,55 +949,55 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         if factor_scores["weather"] >= 100 and factor_scores["suitability"] >= 80:
             recommendations.append({
                 "action": "Consider a personal best attempt",
-                "reason": f"With dry weather and conditions well suited to your handicap of {handicap}, this is a good day for a personal best attempt"
+                "reason": f"Dry weather and conditions suit your {handicap} handicap, making this a good day for a personal best attempt"
             })
         elif factor_scores["busyness"] >= 70:
             recommendations.append({
                 "action": "Any time window should work well",
-                "reason": f"Course pressure is {busyness_label.lower()}, so any time window should work well without long waits"
+                "reason": f"Course pressure is {busyness_label.lower()}, so any time works without long waits"
             })
         else:
             recommendations.append({
                 "action": "Plan for a social round",
-                "reason": f"With {weather_label.lower()} weather and {busyness_label.lower()} course pressure, this is good for a social round"
+                "reason": f"{weather_label.capitalize()} weather and {busyness_label.lower()} course pressure make this good for a social round"
             })
     else:  # Not ideal
         # Recommendations based on lowest scoring factors (threshold-based)
         if not daylight_feasible:
             recommendations.append({
                 "action": "Try booking an earlier tee time tomorrow",
-                "reason": f"With your handicap of {handicap}, finishing in daylight is important to avoid rushed shots and maintain proper form"
+                "reason": f"With your {handicap} handicap, finishing in daylight avoids rushed shots and helps maintain form"
             })
         elif factor_scores["weather"] < 50:  # Threshold: weather score below 50
             if weather_label in ["Rain", "Showers"]:
                 recommendations.append({
                     "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"{weather_label.lower()} conditions affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots"
+                    "reason": f"{weather_label.lower().capitalize()} conditions affect ball flight more for your {handicap} handicap, making distance and shot control harder"
                 })
             elif weather_label == "Windy":
                 recommendations.append({
                     "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"Windy conditions affect ball flight more significantly for players with your handicap of {handicap}, making it harder to judge distances and control shots"
+                    "reason": f"Windy conditions affect ball flight more for your {handicap} handicap, making distance and shot control harder"
                 })
             elif weather_label in ["Cold", "Very cold"]:
                 recommendations.append({
                     "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"{weather_label.lower()} conditions affect ball flight distance and flexibility more significantly for players with your handicap of {handicap}, making it harder to maintain consistent swing tempo"
+                    "reason": f"{weather_label.lower().capitalize()} conditions reduce ball distance and flexibility more for your {handicap} handicap, making consistent swing tempo harder"
                 })
         elif factor_scores["ground"] < 50:  # Threshold: ground score below 50
             recommendations.append({
                 "action": "Consider waiting for firmer ground conditions",
-                "reason": f"Softer ground penalises players with your handicap of {handicap} more heavily, as approach shots won't roll or bounce as expected, making distance control harder"
+                "reason": f"Softer ground penalises your {handicap} handicap more, as approach shots won't roll or bounce as expected, making distance control harder"
             })
         elif factor_scores["busyness"] < 50:  # Threshold: busyness score below 50
             recommendations.append({
                 "action": "Try booking at a quieter time, like early morning or late afternoon",
-                "reason": f"Busier conditions reduce waiting and help players with your handicap of {handicap} maintain tempo and rhythm between shots"
+                "reason": f"Quieter times help your {handicap} handicap maintain tempo and rhythm between shots"
             })
         elif factor_scores["suitability"] < 50:  # Threshold: suitability score below 50
             recommendations.append({
                 "action": "Consider trying a less demanding course today",
-                "reason": f"Course difficulty combined with today's conditions adds unnecessary challenge for players with your handicap of {handicap}"
+                "reason": f"Course difficulty combined with today's conditions adds unnecessary challenge for your {handicap} handicap"
             })
     
     # Validate and filter reasons to prevent duplicates and generic filler
@@ -1013,13 +1019,62 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
 
 def calculate_course_pressure(month, weather_rating, day_of_week, time_of_day, popularity_tier):
     """
-    Calculate course pressure (busyness) with score and explanation.
+    Calculate course pressure (busyness) deterministically using heuristics.
     Returns dict with:
     - busyness_label: Quiet / Moderate / Busy / Very busy
     - busyness_score: 0-100
-    - explanation: What the golfer should expect (waiting, pace, start delays)
+    - explanation: Evidence-based explanation with comparator (1 sentence)
+    - comparator_phrase: Context for comparison (e.g., "for this time", "relative to a typical weekday")
+    
+    Heuristic Rules (deterministic, evidence-based):
+    
+    1. Base Popularity (from courses.json popularity_tier):
+       - Low: 20 points (tends to be quieter)
+       - Medium: 50 points (moderate baseline)
+       - High: 70 points (tends to be busier)
+    
+    2. Day of Week:
+       - Weekend (Sat/Sun): +20 points (typically 2-3x busier than weekdays)
+       - Friday: +10 points (moderately busier, transition day)
+       - Weekday (Mon-Thu): baseline (no adjustment)
+    
+    3. Time of Day:
+       - Midday (11am-2pm): +15 points (peak demand window)
+       - Afternoon (2pm-5pm): +12 points (high demand)
+       - Morning (before 11am):
+         * Weekend: +18 points (very popular weekend slot)
+         * Weekday: +5 points (moderate demand)
+       - Evening (after 5pm): -5 points (typically quieter)
+    
+    4. Weekend Morning Peak:
+       - Weekend + Morning: additional +10 points (highest demand combination)
+    
+    5. Seasonality (UK golf patterns):
+       - Peak season (Apr-Sep): +15 points
+       - Shoulder season (Mar, Oct): +8 points
+       - Off-season (Nov-Feb): baseline
+    
+    6. Weather Attractiveness:
+       - Favorable weather: +15 points (good weather attracts more players)
+       - Poor conditions: +5 points (slight reduction, but still some demand)
+       - Mixed: baseline
+    
+    Score Thresholds:
+    - 0-39: Quiet
+    - 40-59: Moderate
+    - 60-79: Busy
+    - 80-100: Very busy
+    
+    Example outputs:
+    - Weekday Morning, Low popularity: ~25 points → Quiet
+      Explanation: "Likely quieter than usual for this time slot, with minimal waiting between shots and good pace of play expected."
+      Comparator: "for this time slot"
+    
+    - Weekend Morning, High popularity: ~118 points (capped at 100) → Very busy
+      Explanation: "Likely busier than usual relative to a typical weekday, with significant waiting between shots and slower pace of play expected."
+      Comparator: "relative to a typical weekday"
     """
-    # Base score from popularity tier (if only popularity_tier exists)
+    # Base score from popularity tier
     base_score = 0
     if popularity_tier == "Low":
         base_score = 20  # Quiet baseline
@@ -1091,32 +1146,49 @@ def calculate_course_pressure(month, weather_rating, day_of_week, time_of_day, p
     else:
         busyness_label = "Quiet"
     
-    # Generate explanation based on label and conditions
+    # Determine comparator phrase based on context
+    if is_weekend:
+        if is_peak_time:
+            comparator_phrase = "relative to a typical weekday"
+        else:
+            comparator_phrase = "for a weekend"
+    else:
+        comparator_phrase = "for this time slot"
+    
+    # Generate evidence-based explanation with comparator
+    # Use "likely" or "tends to" language to avoid absolute claims
     if busyness_label == "Very busy":
         if is_weekend and is_peak_time:
-            explanation = "Very busy conditions mean significant waiting between shots, slower pace of play, and potential start delays, especially on weekend peak times"
+            explanation = f"Likely busier than usual {comparator_phrase}, with significant waiting between shots and slower pace of play expected."
         elif is_weekend:
-            explanation = "Very busy conditions mean significant waiting between shots, slower pace of play, and potential start delays on weekends"
+            explanation = f"Likely busier than usual {comparator_phrase}, with significant waiting between shots and slower pace of play expected."
         elif is_peak_time:
-            explanation = "Very busy conditions mean significant waiting between shots, slower pace of play, and potential start delays during peak times"
+            explanation = f"Likely busier than usual {comparator_phrase}, with significant waiting between shots and slower pace of play expected."
         else:
-            explanation = "Very busy conditions mean significant waiting between shots, slower pace of play, and potential start delays"
+            explanation = f"Likely busier than usual {comparator_phrase}, with significant waiting between shots and slower pace of play expected."
     elif busyness_label == "Busy":
         if is_weekend:
-            explanation = "Busy conditions mean some waiting between shots and slower pace of play, with possible start delays on weekends"
+            explanation = f"Likely busier than usual {comparator_phrase}, with some waiting between shots and slower pace of play expected."
         elif is_peak_time:
-            explanation = "Busy conditions mean some waiting between shots and slower pace of play during peak times"
+            explanation = f"Likely busier than usual {comparator_phrase}, with some waiting between shots and slower pace of play expected."
         else:
-            explanation = "Busy conditions mean some waiting between shots and slower pace of play"
+            explanation = f"Likely busier than usual {comparator_phrase}, with some waiting between shots and slower pace of play expected."
     elif busyness_label == "Moderate":
-        explanation = "Moderate conditions mean occasional waiting between shots but generally good pace of play"
+        if is_weekend:
+            explanation = f"Moderate demand {comparator_phrase}, with occasional waiting between shots but generally good pace of play."
+        else:
+            explanation = f"Moderate demand {comparator_phrase}, with occasional waiting between shots but generally good pace of play."
     else:  # Quiet
-        explanation = "Quiet conditions mean minimal waiting between shots and good pace of play"
+        if is_weekend:
+            explanation = f"Likely quieter than usual {comparator_phrase}, with minimal waiting between shots and good pace of play expected."
+        else:
+            explanation = f"Likely quieter than usual {comparator_phrase}, with minimal waiting between shots and good pace of play expected."
     
     return {
         "busyness_label": busyness_label,
         "busyness_score": busyness_score,
-        "explanation": explanation
+        "explanation": explanation,
+        "comparator_phrase": comparator_phrase
     }
 
 
@@ -1937,7 +2009,7 @@ def generate_banner_summary(reasons, verdict, handicap, weather_label_display, g
             impact_parts.append("make recovery shots harder")
         elif "firm" in ground_desc:
             condition_parts.append("firm ground")
-            impact_parts.append("provide good roll")
+            impact_parts.append("improve roll")
     
     # Busyness part (only if significant and not ideal)
     if verdict != "Play":
@@ -2040,8 +2112,8 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = "frost risk may delay start times"
                     impact_text = "potential delays and colder playing conditions"
                 else:  # Dry
-                    what_happening = "dry conditions provide clear visibility"
-                    impact_text = "optimal ball flight and comfortable playing conditions"
+                    what_happening = "dry conditions"
+                    impact_text = "clear visibility and comfortable playing"
             elif handicap_band == "mid":
                 if weather_label in ["Rain", "Light rain"]:
                     what_happening = f"{weather_label.lower()} affects ball flight and visibility"
@@ -2053,8 +2125,8 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = "cold air reduces ball distance"
                     impact_text = "clubs playing shorter and less roll on approach shots"
                 else:
-                    what_happening = "dry conditions provide good visibility"
-                    impact_text = "predictable ball flight and good course management"
+                    what_happening = "dry conditions"
+                    impact_text = "predictable ball flight and better course management"
             else:  # high
                 if weather_label in ["Rain", "Light rain"]:
                     what_happening = f"{weather_label.lower()} reduces ball distance and makes lies heavier"
@@ -2066,7 +2138,7 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = "cold air significantly reduces distance"
                     impact_text = "less roll on approach shots and recovery shots require more club"
                 else:
-                    what_happening = "dry conditions provide good ball flight"
+                    what_happening = "dry conditions"
                     impact_text = "more predictable distance and better roll on approach shots"
         
         elif factor == "ground":
@@ -2076,8 +2148,8 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = f"{ground_label.lower()} conditions reduce ball roll"
                     impact_text = "less predictable approach shots and potentially plugged lies"
                 elif ground_label == "Firm":
-                    what_happening = "firm ground provides fast roll"
-                    impact_text = "predictable approach shots and clean lies"
+                    what_happening = "firm ground"
+                    impact_text = "fast roll and clean lies"
                 else:
                     what_happening = "normal ground conditions"
                     impact_text = "standard ball roll and predictable lies"
@@ -2086,8 +2158,8 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = f"{ground_label.lower()} conditions reduce ball roll"
                     impact_text = "less predictable approach shots and harder recovery shots"
                 elif ground_label == "Firm":
-                    what_happening = "firm ground provides good roll"
-                    impact_text = "predictable approach shots and clean lies"
+                    what_happening = "firm ground"
+                    impact_text = "good roll and clean lies"
                 else:
                     what_happening = "normal ground conditions"
                     impact_text = "standard ball roll and predictable lies"
@@ -2096,7 +2168,7 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = f"{ground_label.lower()} conditions significantly reduce roll"
                     impact_text = "less forgiveness on approach shots, heavier lies make recovery harder, and plugged balls reduce distance"
                 elif ground_label == "Firm":
-                    what_happening = "firm ground provides good roll"
+                    what_happening = "firm ground"
                     impact_text = "more forgiveness on approach shots and cleaner lies for recovery"
                 else:
                     what_happening = "normal ground conditions"
@@ -3163,6 +3235,29 @@ async def read_root():
             .primary-button:active {{
                 transform: translateY(0);
             }}
+            .primary-button:disabled {{
+                opacity: 0.7;
+                cursor: not-allowed;
+                transform: none;
+            }}
+            .primary-button:disabled:hover {{
+                background: var(--alba-orange);
+                transform: none;
+            }}
+            .button-spinner {{
+                display: inline-block;
+                width: 14px;
+                height: 14px;
+                border: 2px solid rgba(0, 0, 0, 0.2);
+                border-top-color: var(--alba-black);
+                border-radius: 50%;
+                animation: spin 0.6s linear infinite;
+                margin-left: 8px;
+                vertical-align: middle;
+            }}
+            @keyframes spin {{
+                to {{ transform: rotate(360deg); }}
+            }}
             .button-wrapper {{
                 display: flex;
                 justify-content: center;
@@ -3186,7 +3281,7 @@ async def read_root():
                     <h1 class="form-title">Should I Play Golf Today?</h1>
                     <p class="form-subtitle">A clear, practical breakdown of weather, ground conditions, course pressure, and whether today suits your handicap.</p>
                 </div>
-                <form method="post" action="/assess">
+                <form method="post" action="/assess" onsubmit="handleFormSubmit(event); return true;">
                     <div class="form-grid">
                         <div class="form-group">
                             <label for="course">Course</label>
@@ -3233,7 +3328,10 @@ async def read_root():
                         
                         <div class="form-group form-group-full">
                             <div class="button-wrapper">
-                                <button type="submit" class="primary-button">Check playability</button>
+                                <button type="submit" class="primary-button" id="submit-button">
+                                    <span id="submit-text">Check playability</span>
+                                    <span id="submit-spinner" class="button-spinner" style="display: none;"></span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -3405,6 +3503,19 @@ async def read_root():
                         hideSuggestions();
                     }});
                 }});
+                
+                // Form submit handler
+                window.handleFormSubmit = function(event) {{
+                    const submitButton = document.getElementById('submit-button');
+                    const submitText = document.getElementById('submit-text');
+                    const submitSpinner = document.getElementById('submit-spinner');
+                    
+                    if (submitButton && submitText && submitSpinner) {{
+                        submitButton.disabled = true;
+                        submitText.textContent = 'Checking…';
+                        submitSpinner.style.display = 'inline-block';
+                    }}
+                }};
             }})();
         </script>
             </div>
@@ -3439,7 +3550,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     day_of_week = target_datetime.weekday()  # 0=Monday, 6=Sunday
     month = target_datetime.month
     
-    # Fetch weather data
+    # Fetch weather data with error handling
     weather_data = None
     tomorrow_weather = None
     historical_rainfall = None
@@ -3447,12 +3558,17 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     if course_data:
         lat = course_data["lat"]
         lon = course_data["lon"]
-        weather_data = await fetch_weather_data(lat, lon, target_date)
-        historical_rainfall = await fetch_historical_rainfall(lat, lon, 7)
-        
-        # If today, fetch tomorrow for comparison
-        if day == "Today":
-            tomorrow_weather = await fetch_tomorrow_weather(lat, lon)
+        try:
+            weather_data = await fetch_weather_data(lat, lon, target_date)
+            historical_rainfall = await fetch_historical_rainfall(lat, lon, 7)
+            
+            # If today, fetch tomorrow for comparison
+            if day == "Today":
+                tomorrow_weather = await fetch_tomorrow_weather(lat, lon)
+        except Exception as e:
+            logger.error(f"Error fetching weather data: {str(e)}", exc_info=True)
+            # Re-raise to be caught by assess_get() error handler
+            raise
     
     # Calculate all ratings
     weather_info = calculate_weather_label(weather_data)
@@ -3522,6 +3638,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     verdict = playability["verdict"]
     reasons = playability["reasons"]
     recommendations = playability["recommendations"]
+    factor_scores = playability["factor_scores"]
     
     # Try LLM rewrite if enabled (only rewrites for clarity, doesn't invent)
     llm_rewrite_succeeded = False
@@ -3639,77 +3756,6 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # Normalize weather label to user-friendly display values
     weather_label_display = normalize_weather_label_for_display(weather_label, weather_data)
     ground_label_display = get_ground_label(ground_info)
-    weather_rating_html = f"""
-        <div class="result-item">
-            <div class="result-label">Weather Rating</div>
-            <div class="result-value">{weather_label_display}</div>
-        </div>
-        <div class="result-item">
-            <div class="result-label">Ground</div>
-            <div class="result-value">{ground_label_display}</div>
-        </div>
-    """
-    if tomorrow_forecast:
-        weather_rating_html += f"""
-        <div class="result-item">
-            <div class="result-label">Tomorrow Forecast</div>
-            <div class="result-value">{tomorrow_forecast}</div>
-        </div>
-        """
-    
-    # 2. Busyness rating
-    busyness_html = f"""
-        <div class="result-item">
-            <div class="result-label">Busyness Rating</div>
-            <div class="result-value">{busyness_rating}</div>
-            <div class="help-text">Busyness estimate (not live tee times)</div>
-        </div>
-    """
-    
-    # 3. Handicap suitability - use explicit label from scoring model (already set above)
-    handicap_html = f"""
-        <div class="result-item">
-            <div class="result-label">Handicap Suitability</div>
-            <div class="result-value">{suitability_label_display}</div>
-        </div>
-    """
-    
-    # 3.5. Daylight feasibility
-    daylight_html = f"""
-        <div class="result-item">
-            <div class="result-label">Recommended Holes</div>
-            <div class="result-value">{recommended_holes} holes</div>
-        </div>
-        <div class="result-item">
-            <div class="result-label">Daylight</div>
-            <div class="result-value">{daylight_label}</div>
-        </div>
-        <div class="result-item">
-            <div class="result-label">Timing</div>
-            <div class="result-value">Estimated finish: {finish_time_estimate}, Sunset: {sunset_time}</div>
-        </div>
-    """
-    
-    # 4. Price tier - use descriptive label instead of symbols
-    price_tier_raw = course_data["price_tier"] if course_data else "££"
-    price_label_display = get_price_label(price_tier_raw)
-    price_html = f"""
-        <div class="result-item">
-            <div class="result-label">Price Tier</div>
-            <div class="result-value">{price_label_display}</div>
-            <div class="help-text">Typical estimate</div>
-        </div>
-    """
-    
-    # Generate banner content
-    # Status pill: single decision label
-    if verdict == "Play":
-        status_pill_text = "YES, PLAY"
-    else:  # Not ideal
-        status_pill_text = "NOT TODAY"
-    
-    # Main headline: course name
-    verdict_title = course
     
     # Generate summary sentence from top drivers
     banner_summary = generate_banner_summary(
@@ -3742,21 +3788,96 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # What section title
     what_section_title = "What to expect" if play_recommendation == "Play" else "What to do instead"
     
+    # Convert price_tier to price_label
+    price_tier_raw = course_data["price_tier"] if course_data else "££"
+    price_label_display = get_price_label(price_tier_raw)
+    
+    # Build download URL with assessment context
+    download_params = {
+        "course": course,
+        "handicap": str(handicap),
+        "day": day,
+        "time_of_day": time_of_day,
+        "verdict": verdict,
+        "overall_score": str(overall_score)
+    }
+    download_url = f"/download?{urlencode(download_params)}"
+    
+    # Create view_model dict containing all rendering data
+    # This ensures single source of truth and prevents recomputation bugs
+    view_model = {
+        "course_name": course,
+        "handicap": handicap,
+        "day": day,
+        "time_of_day": time_of_day,
+        "verdict": verdict,
+        "overall_score": overall_score,
+        "banner_summary": banner_summary,
+        "why_bullets_html": why_bullets_html,
+        "what_bullets_html": what_bullets_html,
+        "what_section_title": what_section_title,
+        "status_pill_text": "YES, PLAY" if verdict == "Play" else "NOT TODAY",
+        "verdict_title": course,
+        "verdict_banner_class": "play" if verdict == "Play" else "dont-play",
+        "weather_label_display": weather_label_display,
+        "ground_label_display": ground_label_display,
+        "busyness_rating": busyness_rating,
+        "suitability_label_display": suitability_label_display,
+        "price_label_display": price_label_display,
+        "recommended_holes": recommended_holes,
+        "daylight_label": daylight_label,
+        "finish_time_estimate": finish_time_estimate,
+        "sunset_time": sunset_time,
+        "tomorrow_forecast": tomorrow_forecast,
+        "factor_scores": factor_scores,
+        "download_url": download_url
+    }
+    
     # Verdict banner with status pill, course name and helper text
     # Use structured verdict (binary decision)
-    if verdict == "Play":
-        verdict_banner_class = "play"
-    else:  # Not ideal
-        verdict_banner_class = "dont-play"
     verdict_banner_html = f"""
-        <div class="verdict-banner {verdict_banner_class}">
+        <div class="verdict-banner {view_model['verdict_banner_class']}">
             <div class="verdict-content">
-                <div class="status-pill">{status_pill_text}</div>
+                <div class="status-pill">{view_model['status_pill_text']}</div>
                 <div class="verdict-info">
                     <div class="verdict-title-row">
-                        <div class="verdict-title">{verdict_title}</div>
+                        <div class="verdict-title">{view_model['verdict_title']}</div>
                     </div>
-                    <div class="verdict-helper">{banner_summary}</div>
+                    <div class="verdict-helper">{view_model['banner_summary']}</div>
+                    <div class="feedback-link-wrapper">
+                        <a href="#" class="feedback-link" onclick="event.preventDefault(); toggleFeedbackPanel(); return false;">Was this helpful? Tell us what felt off.</a>
+                    </div>
+                    <div id="feedback-panel" class="feedback-panel" style="display: none;">
+                        <form id="feedback-form" onsubmit="submitFeedback(event); return false;">
+                            <input type="hidden" name="course" value="{view_model['course_name']}">
+                            <input type="hidden" name="handicap" value="{view_model['handicap']}">
+                            <input type="hidden" name="day" value="{view_model['day']}">
+                            <input type="hidden" name="time_of_day" value="{view_model['time_of_day']}">
+                            <input type="hidden" name="verdict" value="{view_model['verdict']}">
+                            <input type="hidden" name="overall_score" value="{view_model['overall_score']}">
+                            <input type="hidden" name="factor_scores" value='{json.dumps(view_model['factor_scores'])}'>
+                            <input type="hidden" name="banner_summary" value="{view_model['banner_summary'].replace('"', '&quot;').replace(chr(10), ' ').replace(chr(13), ' ')}">
+                            <input type="hidden" name="company" value="" id="company-field">
+                            <div class="feedback-field">
+                                <select name="category" id="feedback-category" required>
+                                    <option value="">Select an option</option>
+                                    <option value="Too harsh">Too harsh</option>
+                                    <option value="Too easy">Too easy</option>
+                                    <option value="Wrong reason">Wrong reason</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                            <div class="feedback-field">
+                                <textarea name="free_text" id="feedback-text" placeholder="Optional: tell us more" rows="3"></textarea>
+                            </div>
+                            <div class="feedback-actions">
+                                <button type="submit" class="feedback-submit">Submit</button>
+                            </div>
+                        </form>
+                        <div id="feedback-thanks" class="feedback-thanks" style="display: none;">
+                            Thanks. This helps us improve it.
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -3772,35 +3893,35 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                         <i data-lucide="cloud-rain"></i>
                         <span>Weather</span>
                     </div>
-                    <div class="detail-value">{weather_label_display}</div>
+                    <div class="detail-value">{view_model['weather_label_display']}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="droplets"></i>
                         <span>Ground</span>
                     </div>
-                    <div class="detail-value">{ground_label_display}</div>
+                    <div class="detail-value">{view_model['ground_label_display']}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="users"></i>
                         <span>Busyness</span>
                     </div>
-                    <div class="detail-value">{busyness_rating}</div>
+                    <div class="detail-value">{view_model['busyness_rating']}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="target"></i>
                         <span>Handicap fit</span>
                     </div>
-                    <div class="detail-value">{suitability_label_display}</div>
+                    <div class="detail-value">{view_model['suitability_label_display']}</div>
                 </div>
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="pound-sterling"></i>
                         <span>Price</span>
                     </div>
-                    <div class="detail-value">{price_label_display}</div>
+                    <div class="detail-value">{view_model['price_label_display']}</div>
                 </div>
             </div>
         </details>
@@ -3912,6 +4033,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 border-radius: 8px;
                 padding: 14px 18px;
                 margin-bottom: 16px;
+                min-height: 80px;
             }}
             .verdict-banner.play {{
                 background: var(--alba-green);
@@ -3996,10 +4118,12 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 grid-template-columns: 1fr;
                 gap: 16px;
                 margin-bottom: 16px;
+                min-height: 300px;
             }}
             @media (min-width: 900px) {{
                 .cards-grid {{
                     grid-template-columns: 1fr 1fr;
+                    min-height: 200px;
                 }}
             }}
             .card {{
@@ -4187,6 +4311,143 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             .back-link:hover {{
                 color: var(--alba-orange);
             }}
+            .cta-card {{
+                padding: 18px 20px;
+                background: #303035;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+                margin-bottom: 16px;
+            }}
+            .cta-title {{
+                font-weight: 700;
+                color: var(--alba-cream);
+                margin-bottom: 12px;
+                font-size: 16px;
+                letter-spacing: -0.1px;
+            }}
+            .cta-body {{
+                color: var(--alba-cream);
+                font-size: 14px;
+                font-weight: 400;
+                line-height: 1.7;
+                margin-bottom: 20px;
+            }}
+            .cta-buttons {{
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }}
+            @media (min-width: 640px) {{
+                .cta-buttons {{
+                    flex-direction: row;
+                    gap: 12px;
+                }}
+            }}
+            .cta-button-primary {{
+                display: inline-block;
+                padding: 12px 20px;
+                background: var(--alba-orange);
+                color: var(--alba-cream);
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 14px;
+                text-align: center;
+                transition: background 0.2s ease;
+                flex: 1;
+            }}
+            .cta-button-primary:hover {{
+                background: #E6731F;
+            }}
+            .cta-button-secondary {{
+                display: inline-block;
+                padding: 12px 20px;
+                background: transparent;
+                color: var(--alba-cream);
+                text-decoration: none;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 14px;
+                text-align: center;
+                transition: border-color 0.2s ease, color 0.2s ease;
+                flex: 1;
+            }}
+            .cta-button-secondary:hover {{
+                border-color: rgba(255, 255, 255, 0.4);
+                color: var(--alba-cream);
+            }}
+            .feedback-link-wrapper {{
+                margin-top: 8px;
+            }}
+            .feedback-link {{
+                color: rgba(255, 247, 224, 0.6);
+                font-size: 12px;
+                text-decoration: none;
+                transition: color 0.2s ease;
+            }}
+            .feedback-link:hover {{
+                color: var(--alba-cream);
+            }}
+            .feedback-panel {{
+                margin-top: 12px;
+                padding: 16px;
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }}
+            .feedback-field {{
+                margin-bottom: 12px;
+            }}
+            .feedback-field select,
+            .feedback-field textarea {{
+                width: 100%;
+                padding: 10px 14px;
+                font-size: 14px;
+                font-family: 'Poppins', sans-serif;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 8px;
+                background: var(--alba-offblack);
+                color: var(--alba-cream);
+                transition: border-color 0.2s ease;
+            }}
+            .feedback-field select:focus,
+            .feedback-field textarea:focus {{
+                outline: none;
+                border-color: var(--alba-orange);
+            }}
+            .feedback-field textarea {{
+                resize: vertical;
+                min-height: 60px;
+            }}
+            .feedback-actions {{
+                margin-top: 12px;
+            }}
+            .feedback-submit {{
+                padding: 10px 20px;
+                background: var(--alba-orange);
+                color: var(--alba-cream);
+                border: none;
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 14px;
+                font-family: 'Poppins', sans-serif;
+                cursor: pointer;
+                transition: background 0.2s ease;
+            }}
+            .feedback-submit:hover {{
+                background: #E6731F;
+            }}
+            .feedback-submit:disabled {{
+                opacity: 0.5;
+                cursor: not-allowed;
+            }}
+            .feedback-thanks {{
+                color: var(--alba-cream);
+                font-size: 14px;
+                padding: 12px 0;
+            }}
         </style>
     </head>
     <body>
@@ -4201,18 +4462,27 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 <div class="card">
                     <div class="card-title">Why</div>
                     <div class="card-content">
-                        {why_bullets_html}
+                        {view_model['why_bullets_html']}
                     </div>
                 </div>
                 
                 <div class="card">
-                    <div class="card-title">{what_section_title}</div>
+                    <div class="card-title">{view_model['what_section_title']}</div>
                     <div class="card-content">
-                        {what_bullets_html}
+                        {view_model['what_bullets_html']}
                     </div>
                 </div>
                 
                 {details_html}
+            </div>
+            
+            <div class="cta-card">
+                <div class="cta-title">Turn today's decision into an actual round</div>
+                <div class="cta-body">Alba helps you find the right people and organise a game that fits conditions like today.</div>
+                <div class="cta-buttons">
+                    <a href="{view_model['download_url']}" class="cta-button-primary">Download Alba</a>
+                    <a href="{ALBA_HOW_IT_WORKS_URL}" class="cta-button-secondary">See how Alba works</a>
+                </div>
             </div>
             
             <a href="/" class="back-link">← Back</a>
@@ -4259,6 +4529,57 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                         }});
                     }}
                 }}
+                
+                // Feedback panel functions
+                window.toggleFeedbackPanel = function() {{
+                    const panel = document.getElementById('feedback-panel');
+                    if (panel) {{
+                        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+                    }}
+                }};
+                
+                window.submitFeedback = async function(event) {{
+                    event.preventDefault();
+                    const form = document.getElementById('feedback-form');
+                    const thanks = document.getElementById('feedback-thanks');
+                    const submitBtn = form.querySelector('.feedback-submit');
+                    
+                    // Check honeypot
+                    const companyField = document.getElementById('company-field');
+                    if (companyField && companyField.value) {{
+                        // Honeypot filled - silently accept but don't store
+                        form.style.display = 'none';
+                        if (thanks) thanks.style.display = 'block';
+                        return;
+                    }}
+                    
+                    // Disable form
+                    submitBtn.disabled = true;
+                    
+                    // Collect form data
+                    const formData = new FormData(form);
+                    const data = Object.fromEntries(formData.entries());
+                    
+                    try {{
+                        const response = await fetch('/feedback', {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: JSON.stringify(data)
+                        }});
+                        
+                        if (response.ok) {{
+                            form.style.display = 'none';
+                            if (thanks) thanks.style.display = 'block';
+                        }} else {{
+                            alert('Failed to submit feedback. Please try again.');
+                            submitBtn.disabled = false;
+                        }}
+                    }} catch (error) {{
+                        console.error('Error submitting feedback:', error);
+                        alert('Failed to submit feedback. Please try again.');
+                        submitBtn.disabled = false;
+                    }}
+                }};
             }})();
         </script>
     </body>
@@ -4287,6 +4608,184 @@ async def assess_post(
     # Redirect to GET endpoint
     query_string = urlencode(params)
     return RedirectResponse(url=f"/assess?{query_string}", status_code=303)
+
+
+@app.get("/download", response_class=HTMLResponse)
+async def download_app(
+    course: str = Query(None),
+    handicap: int = Query(None),
+    day: str = Query(None),
+    time_of_day: str = Query(None),
+    verdict: str = Query(None),
+    overall_score: int = Query(None),
+    request: StarletteRequest = None
+):
+    """
+    Download page that detects user agent and redirects to appropriate app store.
+    Logs click with assessment context.
+    """
+    # Log the click with assessment context
+    log_data = {
+        "course": course or "unknown",
+        "handicap": handicap or "unknown",
+        "day": day or "unknown",
+        "time_of_day": time_of_day or "unknown",
+        "verdict": verdict or "unknown",
+        "overall_score": overall_score or "unknown"
+    }
+    print(f"DOWNLOAD_CLICK: {log_data}")
+    
+    # Detect user agent
+    user_agent = request.headers.get("user-agent", "").lower() if request else ""
+    
+    # Check for iOS
+    if "iphone" in user_agent or "ipad" in user_agent or "ipod" in user_agent:
+        return RedirectResponse(url=ALBA_IOS_URL, status_code=302)
+    
+    # Check for Android
+    if "android" in user_agent:
+        return RedirectResponse(url=ALBA_ANDROID_URL, status_code=302)
+    
+    # Default: show page with both links
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Download Alba - Alba Labs</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            :root {{
+                --alba-cream: #FFF7E0;
+                --alba-yellow: #FBB924;
+                --alba-orange: #F78222;
+                --alba-red: #E23642;
+                --alba-offblack: #2C2C2F;
+                --alba-black: #000000;
+                --alba-green: #4A9B5A;
+            }}
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            body {{
+                font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: var(--alba-offblack);
+                color: var(--alba-cream);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                padding: 24px;
+            }}
+            .container {{
+                max-width: 500px;
+                width: 100%;
+                text-align: center;
+            }}
+            h1 {{
+                font-size: 24px;
+                font-weight: 600;
+                margin-bottom: 16px;
+                color: var(--alba-cream);
+            }}
+            p {{
+                font-size: 14px;
+                color: rgba(255, 247, 224, 0.7);
+                margin-bottom: 32px;
+                line-height: 1.6;
+            }}
+            .download-links {{
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }}
+            .download-link {{
+                display: inline-block;
+                padding: 14px 24px;
+                background: var(--alba-orange);
+                color: var(--alba-cream);
+                text-decoration: none;
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 15px;
+                transition: background 0.2s ease;
+            }}
+            .download-link:hover {{
+                background: #E6731F;
+            }}
+            .back-link {{
+                display: inline-block;
+                margin-top: 24px;
+                color: rgba(255, 247, 224, 0.7);
+                text-decoration: none;
+                font-size: 14px;
+            }}
+            .back-link:hover {{
+                color: var(--alba-cream);
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Download Alba</h1>
+            <p>Choose your platform to download the Alba app</p>
+            <div class="download-links">
+                <a href="{ALBA_IOS_URL}" class="download-link">Download for iOS</a>
+                <a href="{ALBA_ANDROID_URL}" class="download-link">Download for Android</a>
+            </div>
+            <a href="/" class="back-link">← Back to home</a>
+        </div>
+    </body>
+    </html>
+    """
+
+
+@app.post("/feedback")
+async def submit_feedback(request: StarletteRequest):
+    """
+    Handle feedback submission and store to data/feedback.jsonl.
+    Honeypot field 'company' - if filled, silently accept but don't store.
+    """
+    try:
+        data = await request.json()
+        
+        # Check honeypot
+        if data.get("company"):
+            # Honeypot filled - silently accept but don't store
+            return {"status": "ok"}
+        
+        # Prepare feedback payload
+        feedback = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "course": data.get("course", ""),
+            "handicap": data.get("handicap", ""),
+            "day": data.get("day", ""),
+            "time_of_day": data.get("time_of_day", ""),
+            "verdict": data.get("verdict", ""),
+            "overall_score": data.get("overall_score", ""),
+            "factor_scores": json.loads(data.get("factor_scores", "{}")),
+            "banner_summary": data.get("banner_summary", ""),
+            "category": data.get("category", ""),
+            "free_text": data.get("free_text", "")
+        }
+        
+        # Ensure data directory exists
+        data_dir = BASE_DIR / "data"
+        data_dir.mkdir(exist_ok=True)
+        
+        # Append to feedback.jsonl
+        feedback_file = data_dir / "feedback.jsonl"
+        with open(feedback_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(feedback) + "\n")
+        
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error storing feedback: {str(e)}", exc_info=True)
+        return {"status": "error", "message": str(e)}
 
 
 def parse_llm_parameter(llm_value) -> bool:
@@ -4351,8 +4850,78 @@ async def assess_get(
     # Log assessment start with debug info
     logger.info(f"ASSESS: request_id={request_id} llm_query={llm_raw} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
     
-    # Render results
-    return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id, debug_mode)
+    # Render results with error handling
+    try:
+        return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id, debug_mode)
+    except Exception as e:
+        logger.error(f"Error rendering assessment results: {str(e)}", exc_info=True)
+        # Return error page
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error - Alba Labs</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                :root {{
+                    --alba-cream: #FFF7E0;
+                    --alba-yellow: #FBB924;
+                    --alba-orange: #F78222;
+                    --alba-red: #E23642;
+                    --alba-offblack: #2C2C2F;
+                    --alba-black: #000000;
+                    --alba-green: #4A9B5A;
+                }}
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                body {{
+                    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    background: var(--alba-offblack);
+                    color: var(--alba-cream);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    padding: 24px;
+                }}
+                .container {{
+                    max-width: 500px;
+                    width: 100%;
+                    text-align: center;
+                }}
+                .error-message {{
+                    font-size: 16px;
+                    line-height: 1.6;
+                    margin-bottom: 24px;
+                    color: var(--alba-cream);
+                }}
+                .back-link {{
+                    display: inline-block;
+                    color: var(--alba-yellow);
+                    text-decoration: none;
+                    font-weight: 500;
+                    font-size: 14px;
+                    transition: color 0.2s ease;
+                }}
+                .back-link:hover {{
+                    color: var(--alba-orange);
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error-message">We couldn't check playability for that selection. Try a different course or time.</div>
+                <a href="/" class="back-link">← Back to home</a>
+            </div>
+        </body>
+        </html>
+        """
 
 
 if __name__ == "__main__":
