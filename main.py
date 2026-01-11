@@ -3817,7 +3817,6 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "what_bullets_html": what_bullets_html,
         "what_section_title": what_section_title,
         "status_pill_text": "YES, PLAY" if verdict == "Play" else "NOT TODAY",
-        "verdict_title": course,
         "verdict_banner_class": "play" if verdict == "Play" else "dont-play",
         "weather_label_display": weather_label_display,
         "ground_label_display": ground_label_display,
@@ -3841,7 +3840,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 <div class="status-pill">{view_model['status_pill_text']}</div>
                 <div class="verdict-info">
                     <div class="verdict-title-row">
-                        <div class="verdict-title">{view_model['verdict_title']}</div>
+                        <div class="verdict-title">{view_model['course_name']}</div>
                     </div>
                     <div class="verdict-helper">{view_model['banner_summary']}</div>
                     <div class="feedback-link-wrapper">
