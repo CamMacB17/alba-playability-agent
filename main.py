@@ -63,6 +63,7 @@ if OPENAI_API_KEY and LLM_SUMMARY_ENABLED:
 ALBA_IOS_URL = os.getenv("ALBA_IOS_URL", "https://apps.apple.com/gb/app/alba-find-golfers-book-games/id6749025396")
 ALBA_ANDROID_URL = os.getenv("ALBA_ANDROID_URL", "https://play.google.com/store/apps/details?id=com.davros.alba")
 ALBA_HOW_IT_WORKS_URL = os.getenv("ALBA_HOW_IT_WORKS_URL", "https://www.golfalba.co/blog/what-alba-does")
+EXTERNAL_LINK_ATTRS = 'target="_blank" rel="noopener noreferrer"'
 
 # Fallback demo courses if courses.json is missing or invalid
 DEMO_COURSES = [
@@ -4394,7 +4395,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             }}
             .feedback-panel {{
                 margin-top: 16px;
-                margin-bottom: 0;
+                margin-bottom: 16px;
                 padding: 14px;
                 background: rgba(255, 255, 255, 0.05);
                 border-radius: 6px;
@@ -4500,7 +4501,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 <div class="cta-body">{view_model['cta_body']}</div>
                 <div class="cta-buttons">
                     <a href="{view_model['download_url']}" class="cta-button-primary">Download Alba</a>
-                    <a href="{ALBA_HOW_IT_WORKS_URL}" class="cta-button-secondary">See how Alba works</a>
+                    <a href="{ALBA_HOW_IT_WORKS_URL}" class="cta-button-secondary" {EXTERNAL_LINK_ATTRS}>See how Alba works</a>
                 </div>
             </div>
             
@@ -4758,8 +4759,8 @@ async def download_app(
             <h1>Get Alba</h1>
             <p>Pick your platform.</p>
             <div class="download-links">
-                <a href="{ALBA_IOS_URL}" class="download-link">Download on iPhone</a>
-                <a href="{ALBA_ANDROID_URL}" class="download-link">Download on Android</a>
+                <a href="{ALBA_IOS_URL}" class="download-link" {EXTERNAL_LINK_ATTRS}>Download on iPhone</a>
+                <a href="{ALBA_ANDROID_URL}" class="download-link" {EXTERNAL_LINK_ATTRS}>Download on Android</a>
             </div>
             <a href="/" class="back-link">Back</a>
         </div>
