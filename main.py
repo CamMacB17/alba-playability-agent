@@ -65,6 +65,29 @@ ALBA_ANDROID_URL = os.getenv("ALBA_ANDROID_URL", "https://play.google.com/store/
 ALBA_HOW_IT_WORKS_URL = os.getenv("ALBA_HOW_IT_WORKS_URL", "https://www.golfalba.co/blog/what-alba-does")
 EXTERNAL_LINK_ATTRS = 'target="_blank" rel="noopener noreferrer"'
 
+# Iframe auto-resize script for Squarespace embedding
+IFRAME_RESIZE_SCRIPT = """
+<script>
+(function () {
+  function sendHeight() {
+    const height = Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight,
+      document.body.offsetHeight,
+      document.documentElement.offsetHeight
+    );
+    parent.postMessage({ type: "ALBA_IFRAME_HEIGHT", height }, "*");
+  }
+
+  window.addEventListener("load", sendHeight);
+  window.addEventListener("resize", sendHeight);
+
+  const ro = new ResizeObserver(sendHeight);
+  ro.observe(document.body);
+})();
+</script>
+"""
+
 # Fallback demo courses if courses.json is missing or invalid
 DEMO_COURSES = [
     {"name": "Demo Course 1", "lat": 51.5074, "lon": -0.1278, "popularity_tier": "Low", "difficulty": "Easy", "beginner_friendly": "Yes", "price_tier": "£"},
@@ -3523,6 +3546,7 @@ async def read_root():
             </div>
         </div>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
+        {IFRAME_RESIZE_SCRIPT}
     </body>
     </html>
     """
@@ -4602,6 +4626,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 }};
             }})();
         </script>
+        {IFRAME_RESIZE_SCRIPT}
     </body>
     </html>
     """
