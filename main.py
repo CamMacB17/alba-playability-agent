@@ -69,21 +69,40 @@ EXTERNAL_LINK_ATTRS = 'target="_blank" rel="noopener noreferrer"'
 IFRAME_RESIZE_SCRIPT = """
 <script>
 (function () {
+  let lastHeight = 0;
+  let rafId = null;
+
+  function getStableHeight() {
+    const el =
+      document.querySelector(".page-wrap") ||
+      document.querySelector(".container") ||
+      document.documentElement;
+
+    return Math.ceil(el.scrollHeight);
+  }
+
   function sendHeight() {
-    const height = Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight,
-      document.body.offsetHeight,
-      document.documentElement.offsetHeight
-    );
+    rafId = null;
+    const height = getStableHeight();
+    if (Math.abs(height - lastHeight) < 8) return;
+    lastHeight = height;
     parent.postMessage({ type: "ALBA_IFRAME_HEIGHT", height }, "*");
   }
 
-  window.addEventListener("load", sendHeight);
-  window.addEventListener("resize", sendHeight);
+  function scheduleSend() {
+    if (rafId) return;
+    rafId = requestAnimationFrame(sendHeight);
+  }
 
-  const ro = new ResizeObserver(sendHeight);
+  window.addEventListener("load", scheduleSend);
+  window.addEventListener("resize", scheduleSend);
+
+  const ro = new ResizeObserver(scheduleSend);
   ro.observe(document.body);
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(scheduleSend).catch(() => {});
+  }
 })();
 </script>
 """
@@ -3300,6 +3319,7 @@ async def read_root():
         </style>
     </head>
     <body>
+        <div class="page-wrap">
         <div class="container">
             <div class="form-card">
                 <div class="form-header">
@@ -3547,6 +3567,7 @@ async def read_root():
         </div>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
         {IFRAME_RESIZE_SCRIPT}
+        </div>
     </body>
     </html>
     """
@@ -4494,6 +4515,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </style>
     </head>
     <body>
+        <div class="page-wrap">
         <div class="container">
             <div class="page-header">
                 <h1 class="page-title">Should I Play Golf Today?</h1>
@@ -4627,6 +4649,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             }})();
         </script>
         {IFRAME_RESIZE_SCRIPT}
+        </div>
     </body>
     </html>
     """
