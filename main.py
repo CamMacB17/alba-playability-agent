@@ -5,9 +5,10 @@ import logging
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from fastapi import FastAPI, Form, Query, Request
+from fastapi import FastAPI, Form, Query, Request, HTTPException, Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.requests import Request as StarletteRequest
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from urllib.parse import urlencode
 import httpx
 from typing import Dict, Any, Tuple, List
@@ -59,9 +60,9 @@ if OPENAI_API_KEY and LLM_SUMMARY_ENABLED:
         openai_client = None
 
 # Alba app download URLs
-ALBA_IOS_URL = os.getenv("ALBA_IOS_URL", "https://apps.apple.com/app/alba")  # Placeholder
-ALBA_ANDROID_URL = os.getenv("ALBA_ANDROID_URL", "https://play.google.com/store/apps/details?id=com.alba")  # Placeholder
-ALBA_HOW_IT_WORKS_URL = os.getenv("ALBA_HOW_IT_WORKS_URL", "https://alba.app/how-it-works")  # Placeholder
+ALBA_IOS_URL = os.getenv("ALBA_IOS_URL", "https://apps.apple.com/gb/app/alba-find-golfers-book-games/id6749025396")
+ALBA_ANDROID_URL = os.getenv("ALBA_ANDROID_URL", "https://play.google.com/store/apps/details?id=com.davros.alba")
+ALBA_HOW_IT_WORKS_URL = os.getenv("ALBA_HOW_IT_WORKS_URL", "https://www.golfalba.co/blog/what-alba-does")
 
 # Fallback demo courses if courses.json is missing or invalid
 DEMO_COURSES = [
@@ -3829,7 +3830,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "sunset_time": sunset_time,
         "tomorrow_forecast": tomorrow_forecast,
         "factor_scores": factor_scores,
-        "download_url": download_url
+        "download_url": download_url,
+        "cta_title": "Make it a proper round" if verdict == "Play" else "So, what are you going to do? Still fancy a game?",
+        "cta_body": "Find players nearby, lock in a tee time, and know who's actually turning up." if verdict == "Play" else "Alba helps you find an easier course, a better time, and people to play with, without the WhatsApp chasing."
     }
     
     # Verdict banner with status pill, course name and helper text
@@ -3846,40 +3849,40 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                     <div class="feedback-link-wrapper">
                         <a href="#" class="feedback-link" onclick="event.preventDefault(); toggleFeedbackPanel(); return false;">Was this helpful? Tell us what felt off.</a>
                     </div>
-                    <div id="feedback-panel" class="feedback-panel" style="display: none;">
-                        <form id="feedback-form" onsubmit="submitFeedback(event); return false;">
-                            <input type="hidden" name="course" value="{view_model['course_name']}">
-                            <input type="hidden" name="handicap" value="{view_model['handicap']}">
-                            <input type="hidden" name="day" value="{view_model['day']}">
-                            <input type="hidden" name="time_of_day" value="{view_model['time_of_day']}">
-                            <input type="hidden" name="verdict" value="{view_model['verdict']}">
-                            <input type="hidden" name="overall_score" value="{view_model['overall_score']}">
-                            <input type="hidden" name="factor_scores" value='{json.dumps(view_model['factor_scores'])}'>
-                            <input type="hidden" name="banner_summary" value="{view_model['banner_summary'].replace('"', '&quot;').replace(chr(10), ' ').replace(chr(13), ' ')}">
-                            <input type="hidden" name="company" value="" id="company-field">
-                            <div class="feedback-field">
-                                <select name="category" id="feedback-category" required>
-                                    <option value="">Select an option</option>
-                                    <option value="Too harsh">Too harsh</option>
-                                    <option value="Too easy">Too easy</option>
-                                    <option value="Wrong reason">Wrong reason</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div class="feedback-field">
-                                <textarea name="free_text" id="feedback-text" placeholder="Optional: tell us more" rows="3"></textarea>
-                            </div>
-                            <div class="feedback-actions">
-                                <button type="submit" class="feedback-submit">Submit</button>
-                            </div>
-                        </form>
-                        <div id="feedback-thanks" class="feedback-thanks" style="display: none;">
-                            Thanks. This helps us improve it.
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
+    """
+    
+    # Feedback panel - rendered outside banner, below it
+    feedback_panel_html = f"""
+            <div id="feedback-panel" class="feedback-panel" style="display: none;">
+                <form id="feedback-form" onsubmit="submitFeedback(event); return false;">
+                    <input type="hidden" name="course" value="{view_model['course_name']}">
+                    <input type="hidden" name="handicap" value="{view_model['handicap']}">
+                    <input type="hidden" name="day" value="{view_model['day']}">
+                    <input type="hidden" name="time_of_day" value="{view_model['time_of_day']}">
+                    <input type="hidden" name="verdict" value="{view_model['verdict']}">
+                    <input type="hidden" name="overall_score" value="{view_model['overall_score']}">
+                    <input type="hidden" name="factor_scores" value='{json.dumps(view_model['factor_scores'])}'>
+                    <input type="hidden" name="banner_summary" value="{view_model['banner_summary'].replace('"', '&quot;').replace(chr(10), ' ').replace(chr(13), ' ')}">
+                    <input type="hidden" name="company" value="" id="company-field">
+                    <div class="feedback-field">
+                        <label for="feedback-text" class="feedback-label">What felt off?</label>
+                        <textarea name="feedback_text" id="feedback-text" placeholder="For example: 'Wind was fine but the ground was much wetter than you suggested' or 'The course is never busy at this time'." rows="4" required></textarea>
+                    </div>
+                    <div class="feedback-field">
+                        <label for="feedback-email" class="feedback-label">If you want a reply (optional)</label>
+                        <input type="email" name="email" id="feedback-email" placeholder="your.email@example.com" class="feedback-input">
+                    </div>
+                    <div class="feedback-actions">
+                        <button type="submit" class="feedback-submit">Submit</button>
+                    </div>
+                </form>
+                <div id="feedback-thanks" class="feedback-thanks" style="display: none;">
+                    Thanks. This helps us improve it.
+                </div>
+            </div>
     """
     
     # Details section - collapsible - use explicit labels
@@ -4390,35 +4393,51 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 color: var(--alba-cream);
             }}
             .feedback-panel {{
-                margin-top: 12px;
-                padding: 16px;
-                background: rgba(0, 0, 0, 0.2);
-                border-radius: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.05);
+                margin-top: 16px;
+                margin-bottom: 0;
+                padding: 14px;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                max-width: 100%;
             }}
             .feedback-field {{
-                margin-bottom: 12px;
+                margin-bottom: 14px;
             }}
-            .feedback-field select,
-            .feedback-field textarea {{
+            .feedback-field:last-of-type {{
+                margin-bottom: 0;
+            }}
+            .feedback-label {{
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: rgba(255, 247, 224, 0.9);
+                margin-bottom: 6px;
+            }}
+            .feedback-field textarea,
+            .feedback-field .feedback-input {{
                 width: 100%;
-                padding: 10px 14px;
+                padding: 10px 12px;
                 font-size: 14px;
                 font-family: 'Poppins', sans-serif;
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 8px;
-                background: var(--alba-offblack);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 6px;
+                background: rgba(255, 255, 255, 0.08);
                 color: var(--alba-cream);
-                transition: border-color 0.2s ease;
+                transition: border-color 0.2s ease, background 0.2s ease;
             }}
-            .feedback-field select:focus,
-            .feedback-field textarea:focus {{
+            .feedback-field textarea:focus,
+            .feedback-field .feedback-input:focus {{
                 outline: none;
-                border-color: var(--alba-orange);
+                border-color: rgba(255, 255, 255, 0.3);
+                background: rgba(255, 255, 255, 0.1);
             }}
             .feedback-field textarea {{
                 resize: vertical;
-                min-height: 60px;
+                min-height: 80px;
+            }}
+            .feedback-field .feedback-input {{
+                height: 40px;
             }}
             .feedback-actions {{
                 margin-top: 12px;
@@ -4456,6 +4475,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 <p class="page-subtitle">A clear, practical breakdown of weather, ground conditions, course pressure, and whether today suits your handicap.</p>
             </div>
             {verdict_banner_html}
+            {feedback_panel_html}
             
             <div class="cards-grid">
                 <div class="card">
@@ -4476,8 +4496,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             </div>
             
             <div class="cta-card">
-                <div class="cta-title">Turn today's decision into an actual round</div>
-                <div class="cta-body">Alba helps you find the right people and organise a game that fits conditions like today.</div>
+                <div class="cta-title">{view_model['cta_title']}</div>
+                <div class="cta-body">{view_model['cta_body']}</div>
                 <div class="cta-buttons">
                     <a href="{view_model['download_url']}" class="cta-button-primary">Download Alba</a>
                     <a href="{ALBA_HOW_IT_WORKS_URL}" class="cta-button-secondary">See how Alba works</a>
@@ -4674,37 +4694,42 @@ async def download_app(
                 font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
                 background: var(--alba-offblack);
                 color: var(--alba-cream);
-                display: flex;
-                align-items: center;
-                justify-content: center;
+                margin: 0;
+                padding: 0;
                 min-height: 100vh;
-                padding: 24px;
             }}
             .container {{
                 max-width: 500px;
                 width: 100%;
+                margin: 0 auto;
+                padding: 24px;
                 text-align: center;
+            }}
+            @media (max-width: 640px) {{
+                .container {{
+                    padding: 16px;
+                }}
             }}
             h1 {{
                 font-size: 24px;
                 font-weight: 600;
-                margin-bottom: 16px;
+                margin-bottom: 6px;
                 color: var(--alba-cream);
             }}
             p {{
                 font-size: 14px;
                 color: rgba(255, 247, 224, 0.7);
-                margin-bottom: 32px;
-                line-height: 1.6;
+                margin-bottom: 20px;
+                line-height: 1.5;
             }}
             .download-links {{
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
+                gap: 10px;
             }}
             .download-link {{
                 display: inline-block;
-                padding: 14px 24px;
+                padding: 12px 20px;
                 background: var(--alba-orange);
                 color: var(--alba-cream);
                 text-decoration: none;
@@ -4718,7 +4743,7 @@ async def download_app(
             }}
             .back-link {{
                 display: inline-block;
-                margin-top: 24px;
+                margin-top: 16px;
                 color: rgba(255, 247, 224, 0.7);
                 text-decoration: none;
                 font-size: 14px;
@@ -4730,13 +4755,13 @@ async def download_app(
     </head>
     <body>
         <div class="container">
-            <h1>Download Alba</h1>
-            <p>Choose your platform to download the Alba app</p>
+            <h1>Get Alba</h1>
+            <p>Pick your platform.</p>
             <div class="download-links">
-                <a href="{ALBA_IOS_URL}" class="download-link">Download for iOS</a>
-                <a href="{ALBA_ANDROID_URL}" class="download-link">Download for Android</a>
+                <a href="{ALBA_IOS_URL}" class="download-link">Download on iPhone</a>
+                <a href="{ALBA_ANDROID_URL}" class="download-link">Download on Android</a>
             </div>
-            <a href="/" class="back-link">← Back to home</a>
+            <a href="/" class="back-link">Back</a>
         </div>
     </body>
     </html>
@@ -4748,6 +4773,8 @@ async def submit_feedback(request: StarletteRequest):
     """
     Handle feedback submission and store to data/feedback.jsonl.
     Honeypot field 'company' - if filled, silently accept but don't store.
+    
+    Feedback stored at data/feedback.jsonl
     """
     try:
         data = await request.json()
@@ -4768,8 +4795,8 @@ async def submit_feedback(request: StarletteRequest):
             "overall_score": data.get("overall_score", ""),
             "factor_scores": json.loads(data.get("factor_scores", "{}")),
             "banner_summary": data.get("banner_summary", ""),
-            "category": data.get("category", ""),
-            "free_text": data.get("free_text", "")
+            "feedback_text": data.get("feedback_text", ""),
+            "email": data.get("email", "")
         }
         
         # Ensure data directory exists
@@ -4785,6 +4812,48 @@ async def submit_feedback(request: StarletteRequest):
     except Exception as e:
         logger.error(f"Error storing feedback: {str(e)}", exc_info=True)
         return {"status": "error", "message": str(e)}
+
+
+security = HTTPBasic()
+
+
+def verify_feedback_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verify HTTP basic auth credentials for feedback viewer."""
+    expected_user = os.getenv("FEEDBACK_USER")
+    expected_pass = os.getenv("FEEDBACK_PASS")
+    
+    if not expected_user or not expected_pass:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    if credentials.username != expected_user or credentials.password != expected_pass:
+        raise HTTPException(status_code=401, detail="Unauthorized", headers={"WWW-Authenticate": "Basic"})
+    
+    return credentials
+
+
+@app.get("/feedback-viewer")
+async def view_feedback(credentials: HTTPBasicCredentials = Depends(verify_feedback_auth)):
+    """
+    Admin route to view the last 50 lines of feedback.jsonl.
+    Requires HTTP Basic Auth via FEEDBACK_USER and FEEDBACK_PASS env vars.
+    Returns 404 if env vars are not set.
+    """
+    try:
+        feedback_file = BASE_DIR / "data" / "feedback.jsonl"
+        
+        if not feedback_file.exists():
+            return PlainTextResponse("No feedback file found.\n", status_code=200)
+        
+        # Read last 50 lines
+        with open(feedback_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            last_50 = lines[-50:] if len(lines) > 50 else lines
+        
+        content = "".join(last_50)
+        return PlainTextResponse(content, media_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error reading feedback: {str(e)}", exc_info=True)
+        return PlainTextResponse(f"Error reading feedback: {str(e)}\n", status_code=500)
 
 
 def parse_llm_parameter(llm_value) -> bool:
