@@ -27,19 +27,39 @@ app = FastAPI()
 
 # Get git commit hash at startup
 def get_git_commit() -> str:
-    """Get the latest git commit hash."""
+    """
+    Get the latest git commit hash with Railway-friendly fallback order:
+    1) RAILWAY_GIT_COMMIT_SHA env var (first 7 chars)
+    2) GITHUB_SHA env var (first 7 chars)
+    3) git rev-parse --short HEAD command
+    4) "unknown"
+    """
+    # Try Railway env var first
+    railway_sha = os.getenv("RAILWAY_GIT_COMMIT_SHA")
+    if railway_sha:
+        return railway_sha[:7]
+    
+    # Try GitHub Actions env var
+    github_sha = os.getenv("GITHUB_SHA")
+    if github_sha:
+        return github_sha[:7]
+    
+    # Fall back to git command
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             timeout=2,
             cwd=os.path.dirname(__file__)
         )
         if result.returncode == 0:
-            return result.stdout.strip()[:7]  # Return short hash
+            commit_hash = result.stdout.strip()
+            # Ensure we return exactly 7 chars (git --short might return fewer)
+            return commit_hash[:7] if len(commit_hash) >= 7 else commit_hash
     except Exception:
         pass
+    
     return "unknown"
 
 # Generate build time at startup
@@ -2839,12 +2859,21 @@ async def debug_env() -> Dict[str, Any]:
 async def debug_version() -> Dict[str, Any]:
     """
     Debug endpoint to check version information.
-    Returns JSON with git commit hash and build time.
+    Returns JSON with git commit hash, build time, and Railway service name if available.
     """
-    return {
+    result = {
         "git_commit": GIT_COMMIT,
         "build_time_utc": BUILD_TIME_UTC
     }
+    
+    # Include Railway service name if available
+    railway_service = os.getenv("RAILWAY_SERVICE_NAME")
+    if railway_service:
+        result["railway_service"] = railway_service
+    else:
+        result["railway_service"] = None
+    
+    return result
 
 
 @app.get("/courses")
