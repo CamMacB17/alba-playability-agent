@@ -3500,6 +3500,13 @@ async def read_root():
                 gap: 12px;
                 margin-top: 4px;
             }}
+            @media (max-width: 899px) {{
+                .course-helper-row {{
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 8px;
+                }}
+            }}
             .course-helper {{
                 font-size: 11px;
                 color: rgba(255, 247, 224, 0.5);
@@ -3511,6 +3518,11 @@ async def read_root():
                 flex-wrap: wrap;
                 justify-content: flex-end;
                 gap: 4px;
+            }}
+            @media (max-width: 899px) {{
+                .course-chips {{
+                    justify-content: flex-start;
+                }}
             }}
             .course-chip {{
                 display: inline-block;
