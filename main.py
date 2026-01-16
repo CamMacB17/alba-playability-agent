@@ -980,23 +980,29 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         "impact": impact
     })
     
-    # Handicap suitability factor scoring with explicit handicap bands and condition-based penalties
-    suitability_result = calculate_handicap_suitability_score(
-        handicap, course_difficulty, ground_info, weather_label, busyness_info
-    )
-    
-    factor_scores["suitability"] = suitability_result["suitability_score"]
-    suitability_label = suitability_result["suitability_label"]
-    suitability_reasons = suitability_result["reasons"]
-    
-    # Add suitability reasons to main reasons list
-    for reason_text in suitability_reasons:
-        reasons.append({
-            "factor": "suitability",
-            "condition": suitability_label,
-            "threshold": f"Handicap {handicap} ({suitability_result['band']} band)",
-            "impact": reason_text
-        })
+    # Handicap suitability factor scoring - only if handicap is provided
+    if handicap is not None:
+        suitability_result = calculate_handicap_suitability_score(
+            handicap, course_difficulty, ground_info, weather_label, busyness_info
+        )
+        
+        factor_scores["suitability"] = suitability_result["suitability_score"]
+        suitability_label = suitability_result["suitability_label"]
+        suitability_reasons = suitability_result["reasons"]
+        
+        # Add suitability reasons to main reasons list
+        for reason_text in suitability_reasons:
+            reasons.append({
+                "factor": "suitability",
+                "condition": suitability_label,
+                "threshold": f"Handicap {handicap} ({suitability_result['band']} band)",
+                "impact": reason_text
+            })
+    else:
+        # No handicap provided - skip suitability scoring
+        factor_scores["suitability"] = 0  # Neutral score, won't affect overall
+        suitability_label = None
+        suitability_reasons = []
     
     # Price factor scoring with explicit thresholds (0-100, informational only)
     # Thresholds: Low=100, Mid=70, High=40
@@ -1014,14 +1020,24 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     # Price doesn't add to reasons unless extreme (informational only)
     
     # Calculate weighted overall score
-    # Weights: Weather 30%, Ground 25%, Busyness 20%, Suitability 25%, Price 0%
-    weights = {
-        "weather": 0.30,
-        "ground": 0.25,
-        "busyness": 0.20,
-        "suitability": 0.25,
-        "price": 0.0  # Display only
-    }
+    # Weights: Weather 30%, Ground 25%, Busyness 20%, Suitability 25% (if handicap provided), Price 0%
+    # If no handicap, redistribute suitability weight: Weather 40%, Ground 33%, Busyness 27%
+    if handicap is not None:
+        weights = {
+            "weather": 0.30,
+            "ground": 0.25,
+            "busyness": 0.20,
+            "suitability": 0.25,
+            "price": 0.0  # Display only
+        }
+    else:
+        weights = {
+            "weather": 0.40,
+            "ground": 0.33,
+            "busyness": 0.27,
+            "suitability": 0.0,  # Not used when no handicap
+            "price": 0.0  # Display only
+        }
     
     # If daylight is not feasible, overall score is 0 (override)
     if not daylight_feasible:
@@ -1033,10 +1049,11 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     # Determine playability_tier from overall score
     playability_tier = get_playability_tier(overall_score)
     
-    # Generate handicap-aware recommendations based on factor thresholds
+    # Generate recommendations based on factor thresholds
+    # Use neutral phrasing when handicap is None, tailored phrasing when provided
     if playability_tier in ["Great", "Decent"]:
         # Play recommendations based on threshold scores
-        if factor_scores["weather"] >= 100 and factor_scores["suitability"] >= 80:
+        if factor_scores["weather"] >= 100 and handicap is not None and factor_scores["suitability"] >= 80:
             recommendations.append({
                 "action": "Consider a personal best attempt",
                 "reason": f"Dry weather and conditions suit your {handicap} handicap, making this a good day for a personal best attempt"
@@ -1051,47 +1068,83 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
                 "action": "Plan for a social round",
                 "reason": f"{weather_label.capitalize()} weather and {busyness_label.lower()} course pressure make this good for a social round"
             })
-    else:  # Not ideal
+    else:  # Challenging or Rough
         # Recommendations based on lowest scoring factors (threshold-based)
         if not daylight_feasible:
-            recommendations.append({
-                "action": "Try booking an earlier tee time tomorrow",
-                "reason": f"With your {handicap} handicap, finishing in daylight avoids rushed shots and helps maintain form"
-            })
+            if handicap is not None:
+                recommendations.append({
+                    "action": "Try booking an earlier tee time tomorrow",
+                    "reason": f"Finishing in daylight avoids rushed shots and helps maintain form"
+                })
+            else:
+                recommendations.append({
+                    "action": "Try booking an earlier tee time tomorrow",
+                    "reason": f"Finishing in daylight avoids rushed shots and helps maintain form"
+                })
         elif factor_scores["weather"] < 50:  # Threshold: weather score below 50
             if weather_label in ["Rain", "Showers"]:
-                recommendations.append({
-                    "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"{weather_label.lower().capitalize()} conditions affect ball flight more for your {handicap} handicap, making distance and shot control harder"
-                })
+                if handicap is not None:
+                    recommendations.append({
+                        "action": "Check tomorrow's forecast for better conditions",
+                        "reason": f"{weather_label.lower().capitalize()} conditions tend to feel tougher if you're still building consistency"
+                    })
+                else:
+                    recommendations.append({
+                        "action": "Check tomorrow's forecast for better conditions",
+                        "reason": f"{weather_label.lower().capitalize()} conditions affect ball flight and visibility"
+                    })
             elif weather_label == "Windy":
-                recommendations.append({
-                    "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"Windy conditions affect ball flight more for your {handicap} handicap, making distance and shot control harder"
-                })
+                if handicap is not None:
+                    recommendations.append({
+                        "action": "Check tomorrow's forecast for better conditions",
+                        "reason": f"Windy conditions tend to feel tougher if you're still building consistency"
+                    })
+                else:
+                    recommendations.append({
+                        "action": "Check tomorrow's forecast for better conditions",
+                        "reason": f"Windy conditions significantly affect ball flight and distance control"
+                    })
             elif weather_label in ["Cold", "Very cold"]:
-                recommendations.append({
-                    "action": "Check tomorrow's forecast for better conditions",
-                    "reason": f"{weather_label.lower().capitalize()} conditions reduce ball distance and flexibility more for your {handicap} handicap, making consistent swing tempo harder"
-                })
+                if handicap is not None:
+                    recommendations.append({
+                        "action": "Check tomorrow's forecast for better conditions",
+                        "reason": f"{weather_label.lower().capitalize()} conditions tend to feel tougher if you're still building consistency"
+                    })
+                else:
+                    recommendations.append({
+                        "action": "Check tomorrow's forecast for better conditions",
+                        "reason": f"{weather_label.lower().capitalize()} conditions reduce ball distance and affect swing flexibility"
+                    })
         elif factor_scores["ground"] < 50:  # Threshold: ground score below 50
-            recommendations.append({
-                "action": "Consider waiting for firmer ground conditions",
-                "reason": f"Softer ground penalises your {handicap} handicap more, as approach shots won't roll or bounce as expected, making distance control harder"
-            })
+            if handicap is not None:
+                recommendations.append({
+                    "action": "Consider waiting for firmer ground conditions",
+                    "reason": f"Softer ground tends to feel tougher if you're still building consistency, as approach shots won't roll or bounce as expected"
+                })
+            else:
+                recommendations.append({
+                    "action": "Consider waiting for firmer ground conditions",
+                    "reason": f"Softer ground affects ball roll and bounce, making distance control harder"
+                })
         elif factor_scores["busyness"] < 50:  # Threshold: busyness score below 50
-            recommendations.append({
-                "action": "Try booking at a quieter time, like early morning or late afternoon",
-                "reason": f"Quieter times help your {handicap} handicap maintain tempo and rhythm between shots"
-            })
-        elif factor_scores["suitability"] < 50:  # Threshold: suitability score below 50
+            if handicap is not None:
+                recommendations.append({
+                    "action": "Try booking at a quieter time, like early morning or late afternoon",
+                    "reason": f"Quieter times help maintain tempo and rhythm between shots"
+                })
+            else:
+                recommendations.append({
+                    "action": "Try booking at a quieter time, like early morning or late afternoon",
+                    "reason": f"Quieter times help maintain tempo and rhythm between shots"
+                })
+        elif handicap is not None and factor_scores["suitability"] < 50:  # Threshold: suitability score below 50
             recommendations.append({
                 "action": "Consider trying a less demanding course today",
-                "reason": f"Course difficulty combined with today's conditions adds unnecessary challenge for your {handicap} handicap"
+                "reason": f"Course difficulty combined with today's conditions tends to feel tougher if you're still building consistency"
             })
     
     # Validate and filter reasons to prevent duplicates and generic filler
-    handicap_band = suitability_result.get("band")
+    handicap_band = suitability_result.get("band") if handicap is not None else None
     reasons = validate_and_filter_reasons(
         reasons, weather_label, ground_label, busyness_label, course_difficulty, handicap_band
     )
@@ -2047,15 +2100,15 @@ def normalize_suitability_label_for_display(suitability_label: str, handicap: in
 def generate_banner_summary(reasons, playability_tier, handicap, weather_label_display, ground_label_display, busyness_label, suitability_label_display):
     """
     Generate a short, specific summary sentence for the banner explaining the decision.
-    Uses top drivers (weather/ground/busyness/handicap fit).
-    Format: "[Factor conditions] will [impact] at a {handicap} handicap."
-    Example: "Cold air and soft ground will cost distance and make recovery shots harder at a 25 handicap."
+    Uses top drivers (weather/ground/busyness/handicap fit if provided).
+    Format: "[Factor conditions] will [impact]" (no handicap mention if None).
+    Example: "Cold air and soft ground will cost distance and make recovery shots harder."
     """
     if not reasons:
         if playability_tier in ["Great", "Decent"]:
-            return f"Good conditions for a {handicap} handicap today."
+            return "Good conditions today."
         else:
-            return f"Conditions add challenge for a {handicap} handicap today."
+            return "Conditions add challenge today."
     
     # Prioritize factors: weather, ground, busyness, suitability
     factor_priority = ["weather", "ground", "busyness", "suitability"]
@@ -2108,8 +2161,8 @@ def generate_banner_summary(reasons, playability_tier, handicap, weather_label_d
             condition_parts.append(f"{busyness_label.lower()} conditions")
             impact_parts.append("slow pace")
     
-    # Suitability part (only if challenging/rough)
-    if playability_tier in ["Challenging", "Rough"]:
+    # Suitability part (only if challenging/rough and handicap provided)
+    if playability_tier in ["Challenging", "Rough"] and handicap is not None and suitability_label_display:
         suitability_reason = next((r for r in selected_factors if r.get("factor") == "suitability"), None)
         if suitability_reason and "tough" in suitability_label_display.lower():
             # Already captured in ground/weather, but can add if needed
@@ -2120,46 +2173,58 @@ def generate_banner_summary(reasons, playability_tier, handicap, weather_label_d
         # Use first 2 conditions and their impacts
         conditions = " and ".join(condition_parts[:2])
         impacts = " and ".join(impact_parts[:2])
-        return f"{conditions.capitalize()} will {impacts} at a {handicap} handicap."
+        return f"{conditions.capitalize()} will {impacts}."
     
     # Fallback
     if playability_tier in ["Great", "Decent"]:
-        return f"Good conditions for a {handicap} handicap today."
+        return "Good conditions today."
     else:
-        return f"Conditions add challenge for a {handicap} handicap today."
+        return "Conditions add challenge today."
 
 
-def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground_label, busyness_label):
+def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground_label, busyness_label, golf_experience="Regular"):
     """
-    Generate 3-4 handicap-aware why bullets.
-    Format: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
+    Generate why bullets, capped based on golf_experience.
+    Format: "[Factor]: [what's happening], so you can expect [impact]."
+    If handicap provided: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
     
-    Handicap rules:
+    Golf experience rules:
+    - Beginner: up to 6 bullets (more guidance)
+    - Regular: 3-4 bullets (current behavior)
+    - Confident: max 3 bullets (more factual, less guidance)
+    
+    Handicap rules (if provided):
     - Low (0-12): Downweight course difficulty and busyness, focus on safety/comfort (weather, extreme conditions)
     - Mid (13-24): Balanced explanation across all factors
     - High (25-54): Emphasize reduced forgiveness (less roll, heavier lies, harder recovery, slower pace adds pressure)
     """
-    # Determine handicap band
-    if handicap <= 12:
-        handicap_band = "low"
-    elif handicap <= 24:
-        handicap_band = "mid"
+    # Determine handicap band if provided
+    if handicap is not None:
+        if handicap <= 12:
+            handicap_band = "low"
+        elif handicap <= 24:
+            handicap_band = "mid"
+        else:
+            handicap_band = "high"
     else:
-        handicap_band = "high"
+        handicap_band = None
     
     bullets = []
     seen_factors = set()
     
-    # Factor priority based on handicap band
+    # Factor priority based on handicap band (if provided)
     if handicap_band == "low":
         # Low handicap: prioritize weather (safety/comfort), then ground, downweight busyness/difficulty
-        factor_priority = ["weather", "ground", "busyness", "suitability"]
+        factor_priority = ["weather", "ground", "busyness"]
     elif handicap_band == "mid":
         # Mid handicap: balanced
-        factor_priority = ["weather", "ground", "busyness", "suitability"]
-    else:  # high
+        factor_priority = ["weather", "ground", "busyness"]
+    elif handicap_band == "high":
         # High handicap: emphasize all factors, especially ground and busyness (forgiveness)
-        factor_priority = ["ground", "weather", "busyness", "suitability"]
+        factor_priority = ["ground", "weather", "busyness"]
+    else:  # No handicap provided
+        # Balanced priority without suitability
+        factor_priority = ["weather", "ground", "busyness"]
     
     # Map factor names to display names
     factor_display_names = {
@@ -2170,8 +2235,10 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
     }
     
     # Process reasons in priority order
+    # Cap based on golf_experience: Beginner up to 6, Regular 3-4, Confident max 3
+    max_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
     for factor in factor_priority:
-        if len(bullets) >= 4:
+        if len(bullets) >= max_bullets:
             break
         
         # Find reason for this factor
@@ -2187,8 +2254,22 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
         factor_display = factor_display_names.get(factor, factor.capitalize())
         
         if factor == "weather":
-            # Weather: focus on safety/comfort for low, impact on playability for mid/high
-            if handicap_band == "low":
+            # Weather: focus on safety/comfort for low, impact on playability for mid/high, neutral if no handicap
+            if handicap_band is None:
+                # No handicap: neutral description
+                if weather_label in ["Rain", "Light rain"]:
+                    what_happening = f"{weather_label.lower()} affects ball flight and visibility"
+                    impact_text = "more challenging shot control"
+                elif weather_label == "Windy":
+                    what_happening = "wind affects ball flight"
+                    impact_text = "more challenging shot control and distance judgment"
+                elif weather_label == "Cold":
+                    what_happening = "cold air reduces ball distance"
+                    impact_text = "clubs playing shorter and less roll on approach shots"
+                else:
+                    what_happening = "dry conditions"
+                    impact_text = "predictable ball flight"
+            elif handicap_band == "low":
                 if weather_label in ["Rain", "Light rain"]:
                     what_happening = f"{weather_label.lower()} reduces visibility and makes footing slippery"
                     impact_text = "less control over ball flight and increased risk of slips"
@@ -2232,8 +2313,19 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     impact_text = "more predictable distance and better roll on approach shots"
         
         elif factor == "ground":
-            # Ground: emphasize forgiveness impact for high handicap
-            if handicap_band == "low":
+            # Ground: emphasize forgiveness impact for high handicap, neutral if no handicap
+            if handicap_band is None:
+                # No handicap: neutral description
+                if "soft" in ground_label.lower() or "too soft" in ground_label.lower():
+                    what_happening = f"{ground_label.lower()} conditions reduce ball roll"
+                    impact_text = "less predictable approach shots"
+                elif ground_label == "Firm":
+                    what_happening = "firm ground"
+                    impact_text = "fast roll and clean lies"
+                else:
+                    what_happening = "normal ground conditions"
+                    impact_text = "standard ball roll and predictable lies"
+            elif handicap_band == "low":
                 if "soft" in ground_label.lower() or "too soft" in ground_label.lower():
                     what_happening = f"{ground_label.lower()} conditions reduce ball roll"
                     impact_text = "less predictable approach shots and potentially plugged lies"
@@ -2265,8 +2357,16 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     impact_text = "standard roll and manageable lies for recovery shots"
         
         elif factor == "busyness":
-            # Busyness: downweight for low, emphasize pressure for high
-            if handicap_band == "low":
+            # Busyness: downweight for low, emphasize pressure for high, neutral if no handicap
+            if handicap_band is None:
+                # No handicap: neutral description
+                if busyness_label in ["Busy", "Very busy"]:
+                    what_happening = f"{busyness_label.lower()} conditions mean longer waits between shots"
+                    impact_text = "slower pace of play"
+                else:
+                    what_happening = f"{busyness_label.lower()} conditions"
+                    impact_text = "good pace of play"
+            elif handicap_band == "low":
                 if busyness_label in ["Busy", "Very busy"]:
                     what_happening = f"{busyness_label.lower()} conditions mean longer waits"
                     impact_text = "slower pace of play and potential delays"
@@ -2289,6 +2389,9 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     impact_text = "good pace allows time to recover between shots"
         
         elif factor == "suitability":
+            # Suitability: skip if no handicap provided
+            if handicap_band is None:
+                continue
             # Suitability: downweight for low, emphasize challenge for high
             if handicap_band == "low":
                 # For low handicap, only mention if it's significantly challenging
@@ -2313,14 +2416,26 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
                     what_happening = f"course difficulty is {condition.lower()}"
                     impact_text = "more forgiving course layout with wider landing areas"
         
-        # Format bullet: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
-        bullet = f"{factor_display}: {what_happening}, so at a {handicap} handicap you can expect {impact_text}."
+        # Format bullet: more factual for Confident, guidance-oriented for others
+        if golf_experience == "Confident":
+            # Confident: more factual, direct format
+            if handicap is not None:
+                bullet = f"{factor_display}: {what_happening}. At a {handicap} handicap, {impact_text}."
+            else:
+                bullet = f"{factor_display}: {what_happening}. {impact_text.capitalize()}."
+        else:
+            # Beginner/Regular: guidance-oriented format
+            if handicap is not None:
+                bullet = f"{factor_display}: {what_happening}, so at a {handicap} handicap you can expect {impact_text}."
+            else:
+                bullet = f"{factor_display}: {what_happening}, so you can expect {impact_text}."
         bullets.append(bullet)
     
-    # Ensure we have 3-4 bullets by filling from remaining reasons if needed
-    if len(bullets) < 3:
+    # Ensure we have minimum bullets by filling from remaining reasons if needed
+    min_bullets = 3 if golf_experience != "Confident" else 2
+    if len(bullets) < min_bullets:
         for reason in reasons:
-            if len(bullets) >= 4:
+            if len(bullets) >= max_bullets:
                 break
             factor = reason.get("factor", "")
             if factor in seen_factors:
@@ -2333,23 +2448,32 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
             # Generate generic bullet if we don't have enough
             if factor == "weather":
                 what_happening = f"{weather_label.lower()} conditions"
-                if handicap_band == "high":
+                if handicap_band is None:
+                    impact_text = "affects ball flight and course management"
+                elif handicap_band == "high":
                     impact_text = "less predictable ball flight and distance control"
                 else:
                     impact_text = "affects ball flight and course management"
             elif factor == "ground":
                 what_happening = f"{ground_label.lower()} conditions"
-                if handicap_band == "high":
+                if handicap_band is None:
+                    impact_text = "affects ball roll and approach shots"
+                elif handicap_band == "high":
                     impact_text = "less roll and heavier lies make recovery shots harder"
                 else:
                     impact_text = "affects ball roll and approach shots"
             elif factor == "busyness":
                 what_happening = f"{busyness_label.lower()} conditions"
-                if handicap_band == "high":
+                if handicap_band is None:
+                    impact_text = "affects pace of play"
+                elif handicap_band == "high":
                     impact_text = "slower pace adds pressure on each shot"
                 else:
                     impact_text = "affects pace of play"
             elif factor == "suitability":
+                # Skip suitability if no handicap provided
+                if handicap_band is None:
+                    continue
                 what_happening = f"course difficulty is {condition.lower()}"
                 if handicap_band == "high":
                     impact_text = "less forgiveness on mis-hits and harder recovery"
@@ -2358,11 +2482,23 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
             else:
                 continue
             
-            bullet = f"{factor_display}: {what_happening}, so at a {handicap} handicap you can expect {impact_text}."
+            # Format bullet: more factual for Confident, guidance-oriented for others
+            if golf_experience == "Confident":
+                # Confident: more factual, direct format
+                if handicap is not None:
+                    bullet = f"{factor_display}: {what_happening}. At a {handicap} handicap, {impact_text}."
+                else:
+                    bullet = f"{factor_display}: {what_happening}. {impact_text.capitalize()}."
+            else:
+                # Beginner/Regular: guidance-oriented format
+                if handicap is not None:
+                    bullet = f"{factor_display}: {what_happening}, so at a {handicap} handicap you can expect {impact_text}."
+                else:
+                    bullet = f"{factor_display}: {what_happening}, so you can expect {impact_text}."
             bullets.append(bullet)
     
-    # Return exactly 3-4 bullets
-    return bullets[:4] if len(bullets) >= 3 else bullets
+    # Return bullets capped by golf_experience
+    return bullets[:max_bullets] if len(bullets) >= min_bullets else bullets
 
 
 def get_ground_label(ground_info) -> str:
@@ -3549,8 +3685,17 @@ async def read_root():
                         
                         <div class="form-group">
                             <label for="handicap">Handicap</label>
-                            <input type="number" id="handicap" name="handicap" min="0" max="54" value="25" required>
-                            <div class="help-text">Enter your handicap (0 to 54). Beginners typically start around 25-30.</div>
+                            <input type="number" id="handicap" name="handicap" min="0" max="54" value="25">
+                            <div class="help-text">Optional: only used for tailored tips.</div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="golf_experience">Golf experience</label>
+                            <select id="golf_experience" name="golf_experience">
+                                <option value="Beginner">Beginner</option>
+                                <option value="Regular" selected>Regular</option>
+                                <option value="Confident">Confident</option>
+                            </select>
                         </div>
                         
                         <div class="form-group">
@@ -3773,7 +3918,7 @@ async def read_root():
     """
 
 
-async def render_assessment_results(course: str, handicap: int, day: str, time_of_day: str, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None, request_id: str = None, debug_mode: bool = False):
+async def render_assessment_results(course: str, handicap: int = None, golf_experience: str = "Regular", day: str = None, time_of_day: str = None, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None, request_id: str = None, debug_mode: bool = False):
     """
     Shared function to calculate ratings and render assessment results.
     
@@ -3863,22 +4008,26 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     weather_label = weather_info["weather_label"]
     
     # Extract suitability label from playability results for display
-    # Use normalized format: "Good for a {handicap} handicap" or "Tough for a {handicap} handicap today"
-    suitability_reasons_list = [r for r in playability["reasons"] if r["factor"] == "suitability"]
-    if suitability_reasons_list:
-        suitability_label_raw = suitability_reasons_list[0]["condition"] if suitability_reasons_list else ""
+    # Only show if handicap is provided
+    if handicap is not None:
+        suitability_reasons_list = [r for r in playability["reasons"] if r["factor"] == "suitability"]
+        if suitability_reasons_list:
+            suitability_label_raw = suitability_reasons_list[0]["condition"] if suitability_reasons_list else ""
+        else:
+            suitability_label_raw = ""
+        
+        # Normalize suitability label for display
+        suitability_label_display = normalize_suitability_label_for_display(suitability_label_raw, handicap)
+        
+        # Keep old handicap_suitability for backward compatibility (used in some display code)
+        suitability_score = playability["factor_scores"]["suitability"]
+        if suitability_score >= 60:
+            handicap_suitability = "Well suited"
+        else:
+            handicap_suitability = "Well suited"  # Neutral phrasing
     else:
-        suitability_label_raw = ""
-    
-    # Normalize suitability label for display
-    suitability_label_display = normalize_suitability_label_for_display(suitability_label_raw, handicap)
-    
-    # Keep old handicap_suitability for backward compatibility (used in some display code)
-    suitability_score = playability["factor_scores"]["suitability"]
-    if suitability_score >= 60:
-        handicap_suitability = "Well suited"
-    else:
-        handicap_suitability = "Not ideal today"
+        suitability_label_display = None
+        handicap_suitability = None
     
     # Extract structured outputs
     overall_score = playability["overall_score"]
@@ -3914,9 +4063,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     # Generate handicap-aware why bullets
     # Format: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
-    # Always returns 3-4 bullets, explicitly tied to handicap
+    # Cap and adjust based on golf_experience
     why_bullets = generate_handicap_aware_why_bullets(
-        reasons, handicap, weather_label, ground_label, busyness_label
+        reasons, handicap, weather_label, ground_label, busyness_label, golf_experience
     )
     
     # Generate what to do bullets from structured recommendations
@@ -3948,19 +4097,24 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 seen_actions.add(action_normalized)
                 what_to_do_bullets.append(bullet)
             
-            # Limit to 4 bullets max
-            if len(what_to_do_bullets) >= 4:
+            # Cap bullets based on golf_experience
+            max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
+            if len(what_to_do_bullets) >= max_what_bullets:
                 break
     
     # Ensure we have at least 2 bullets
     if len(what_to_do_bullets) < 2:
         if playability_tier in ["Great", "Decent"]:
-            what_to_do_bullets.append("Enjoy your round. Conditions are suitable for your handicap today.")
+            what_to_do_bullets.append("Enjoy your round. Conditions are suitable today.")
         else:
-            what_to_do_bullets.append(f"Consider waiting for better conditions. Today's conditions add unnecessary challenge for your handicap of {handicap}.")
+            if handicap is not None:
+                what_to_do_bullets.append(f"Consider waiting for better conditions. Today's conditions tend to feel tougher if you're still building consistency.")
+            else:
+                what_to_do_bullets.append("Consider waiting for better conditions. Today's conditions add challenge.")
     
-    # Limit to 4 bullets max
-    what_to_do_bullets = what_to_do_bullets[:4]
+    # Cap bullets based on golf_experience
+    max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
+    what_to_do_bullets = what_to_do_bullets[:max_what_bullets]
     
     # Generate added_action from recommendations (for LLM summary)
     if recommendations:
@@ -4002,24 +4156,27 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         ground_label_display, busyness_label, suitability_label_display
     )
     
-    # Why section - use handicap-aware bullets (always 3-4 bullets)
-    # Ensure we have 3-4 bullets (function should always return at least 3)
-    why_bullets_final = why_bullets[:4] if len(why_bullets) >= 3 else why_bullets
+    # Why section - cap bullets based on golf_experience
+    # Beginner: up to 6 total guidance bullets, Regular: 3-4, Confident: max 3
+    max_why_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
+    why_bullets_final = why_bullets[:max_why_bullets] if len(why_bullets) >= 3 else why_bullets
     
-    # Fallback if we somehow have fewer than 3 bullets (shouldn't happen, but safety check)
-    if len(why_bullets_final) < 3:
+    # Fallback if we somehow have fewer than minimum bullets (shouldn't happen, but safety check)
+    min_why_bullets = 3 if golf_experience != "Confident" else 2
+    if len(why_bullets_final) < min_why_bullets:
         # Regenerate with all available data
         why_bullets_final = generate_handicap_aware_why_bullets(
-            reasons, handicap, weather_label, ground_label, busyness_label
+            reasons, handicap, weather_label, ground_label, busyness_label, golf_experience
         )
-        why_bullets_final = why_bullets_final[:4]
+        why_bullets_final = why_bullets_final[:max_why_bullets]
     
     # Render as HTML
     why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets_final]) + '</ul>'
     
-    # What to do instead - use formatted bullets array (2-4 bullets)
-    # Ensure we have 2-4 bullets
-    what_to_do_bullets_final = what_to_do_bullets[:4] if len(what_to_do_bullets) >= 2 else what_to_do_bullets
+    # What to do instead - cap bullets based on golf_experience
+    # Beginner: up to 6 total, Regular: 2-4, Confident: max 3
+    max_what_bullets_final = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
+    what_to_do_bullets_final = what_to_do_bullets[:max_what_bullets_final] if len(what_to_do_bullets) >= 2 else what_to_do_bullets
     
     # Render as HTML
     what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
@@ -4034,12 +4191,13 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     # Build download URL with assessment context
     download_params = {
         "course": course,
-        "handicap": str(handicap),
         "day": day,
         "time_of_day": time_of_day,
         "playability_tier": playability_tier,
         "overall_score": str(overall_score)
     }
+    if handicap is not None:
+        download_params["handicap"] = str(handicap)
     download_url = f"/download?{urlencode(download_params)}"
     
     # Create view_model dict containing all rendering data
@@ -4073,16 +4231,23 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "cta_body": "Find players nearby, lock in a tee time, and know who's actually turning up." if playability_tier in ["Great", "Decent"] else "Alba helps you find an easier course, a better time, and people to play with, without the WhatsApp chasing."
     }
     
-    # Conditions banner with tier, course name and helper text
-    # Use playability_tier for rendering
+    # Conditions banner with headline, playability tier, and suggested plan
+    # Headline: "Today's Golf Conditions" or "Tomorrow's Golf Conditions"
+    banner_headline = f"{day}'s Golf Conditions"
+    # Primary label: "Playability: <tier>"
+    playability_label = f"Playability: {playability_tier}"
+    # Secondary label: "Best move: <plan>"
+    best_move_label = f"Best move: {suggested_plan}"
+    
     verdict_banner_html = f"""
         <div class="verdict-banner {view_model['tier_banner_class']}">
             <div class="verdict-content">
                 <div class="verdict-info">
                     <div class="verdict-title-row">
-                        <div class="verdict-title">{view_model['course_name']}</div>
+                        <div class="verdict-title">{banner_headline}</div>
                     </div>
-                    <div class="verdict-helper">{view_model['banner_summary']}</div>
+                    <div class="verdict-primary-label">{playability_label}</div>
+                    <div class="verdict-secondary-label">{best_move_label}</div>
                     <div class="feedback-link-wrapper">
                         <a href="#" class="feedback-link" onclick="event.preventDefault(); toggleFeedbackPanel(); return false;">Was this helpful? Tell us what felt off.</a>
                     </div>
@@ -4091,12 +4256,34 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         </div>
     """
     
+    # "If not, do this instead" section for Challenging or Rough tiers
+    if playability_tier in ["Challenging", "Rough"]:
+        if playability_tier == "Challenging":
+            instead_suggestions = "9 holes, range session, short game"
+        else:  # Rough
+            instead_suggestions = "Range session, short game, putting green, simulator"
+        
+        instead_section_html = f"""
+            <div class="instead-section">
+                <div class="instead-title">If not, do this instead</div>
+                <div class="instead-suggestions">{instead_suggestions}</div>
+                <div class="instead-subtitle">If you still play</div>
+                <ul class="instead-bullets">
+                    <li>Waterproofs and spare glove</li>
+                    <li>Take one more club and swing smooth</li>
+                    <li>Flight it down in the wind</li>
+                </ul>
+            </div>
+        """
+    else:
+        instead_section_html = ""
+    
     # Feedback panel - rendered outside banner, below it
     feedback_panel_html = f"""
             <div id="feedback-panel" class="feedback-panel" style="display: none;">
                 <form id="feedback-form" onsubmit="submitFeedback(event); return false;">
                     <input type="hidden" name="course" value="{view_model['course_name']}">
-                    <input type="hidden" name="handicap" value="{view_model['handicap']}">
+                    {f'<input type="hidden" name="handicap" value="{view_model["handicap"]}">' if view_model.get('handicap') is not None else ''}
                     <input type="hidden" name="day" value="{view_model['day']}">
                     <input type="hidden" name="time_of_day" value="{view_model['time_of_day']}">
                     <input type="hidden" name="playability_tier" value="{view_model['playability_tier']}">
@@ -4148,6 +4335,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                     </div>
                     <div class="detail-value">{view_model['busyness_rating']}</div>
                 </div>
+                {f'''
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="target"></i>
@@ -4155,6 +4343,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                     </div>
                     <div class="detail-value">{view_model['suitability_label_display']}</div>
                 </div>
+                ''' if view_model.get('suitability_label_display') else ''}
                 <div class="detail-item">
                     <div class="detail-label">
                         <i data-lucide="pound-sterling"></i>
@@ -4181,10 +4370,10 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             Weather: {weather_rating}<br>
             Ground: {ground_label}<br>
             Busyness: {busyness_rating}<br>
-            Suitability: {handicap_suitability}<br>
+            {f'Suitability: {handicap_suitability}<br>' if handicap_suitability is not None else ''}
             Price Tier: {price_tier_raw}<br>
             Daylight: {daylight_label}<br>
-            Handicap: {handicap}<br>
+            {f'Handicap: {handicap}<br>' if handicap is not None else ''}
             Recommended Holes: {recommended_holes}<br>
         </div>
         """
@@ -4318,6 +4507,19 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 flex: 1;
                 min-width: 0;
             }}
+            .verdict-primary-label {{
+                color: var(--alba-cream);
+                font-weight: 500;
+                font-size: 16px;
+                margin-top: 4px;
+            }}
+            .verdict-secondary-label {{
+                color: var(--alba-cream);
+                font-weight: 400;
+                font-size: 14px;
+                margin-top: 2px;
+                opacity: 0.9;
+            }}
             .verdict-course {{
                 color: var(--alba-cream);
                 font-weight: 500;
@@ -4348,6 +4550,12 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 }}
                 .verdict-title {{
                     font-size: 16px;
+                }}
+                .verdict-primary-label {{
+                    font-size: 14px;
+                }}
+                .verdict-secondary-label {{
+                    font-size: 13px;
                 }}
                 .verdict-course {{
                     font-size: 14px;
@@ -4544,6 +4752,71 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 line-height: 1.4;
                 margin-top: 0;
             }}
+            .instead-section {{
+                margin-top: 20px;
+                margin-bottom: 20px;
+                padding: 16px 18px;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }}
+            .instead-title {{
+                color: var(--alba-cream);
+                font-weight: 600;
+                font-size: 16px;
+                margin-bottom: 8px;
+            }}
+            .instead-suggestions {{
+                color: var(--alba-cream);
+                font-weight: 400;
+                font-size: 14px;
+                margin-bottom: 12px;
+                line-height: 1.5;
+            }}
+            .instead-subtitle {{
+                color: rgba(255, 247, 224, 0.8);
+                font-weight: 500;
+                font-size: 13px;
+                margin-top: 12px;
+                margin-bottom: 6px;
+            }}
+            .instead-bullets {{
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }}
+            .instead-bullets li {{
+                color: var(--alba-cream);
+                font-size: 14px;
+                font-weight: 300;
+                line-height: 1.6;
+                padding-left: 16px;
+                position: relative;
+                margin-bottom: 4px;
+            }}
+            .instead-bullets li:before {{
+                content: "•";
+                position: absolute;
+                left: 0;
+                color: var(--alba-yellow);
+                font-weight: 600;
+            }}
+            @media (max-width: 640px) {{
+                .instead-section {{
+                    padding: 14px 16px;
+                    margin-top: 16px;
+                    margin-bottom: 16px;
+                }}
+                .instead-title {{
+                    font-size: 15px;
+                }}
+                .instead-suggestions {{
+                    font-size: 13px;
+                }}
+                .instead-bullets li {{
+                    font-size: 13px;
+                }}
+            }}
             .back-link {{
                 display: inline-block;
                 margin-top: 16px;
@@ -4739,6 +5012,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 {details_html}
             </div>
             
+            {instead_section_html}
+            
             <div class="cta-card">
                 <div class="cta-title">{view_model['cta_title']}</div>
                 <div class="cta-body">{view_model['cta_body']}</div>
@@ -4855,20 +5130,23 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
 @app.post("/assess", response_class=RedirectResponse)
 async def assess_post(
     course: str = Form(...),
-    handicap: int = Form(...),
+    handicap: int = Form(None),
+    golf_experience: str = Form("Regular"),
     day: str = Form(...),
     time_of_day: str = Form(...)
 ):
     """
     Handle POST form submission and redirect to GET with query parameters.
     """
-    # Build query parameters
+    # Build query parameters - only include handicap if provided
     params = {
         "course": course,
-        "handicap": str(handicap),
+        "golf_experience": golf_experience,
         "day": day,
         "time_of_day": time_of_day
     }
+    if handicap is not None:
+        params["handicap"] = str(handicap)
     
     # Redirect to GET endpoint
     query_string = urlencode(params)
@@ -5131,6 +5409,7 @@ def parse_llm_parameter(llm_value) -> bool:
 async def assess_get(
     course: str = Query(None),
     handicap: int = Query(None),
+    golf_experience: str = Query("Regular"),
     day: str = Query(None),
     time_of_day: str = Query(None),
     llm: str = Query(None, description="Set to 1, '1', 'true', 'True', or 'yes' to force LLM summary"),
@@ -5144,8 +5423,17 @@ async def assess_get(
     if not course or not course.strip():
         return RedirectResponse(url="/", status_code=303)
     
-    if not all([handicap is not None, day, time_of_day]):
+    # Handicap is optional, but day and time_of_day are required
+    if not all([day, time_of_day]):
         return RedirectResponse(url="/", status_code=303)
+    
+    # Set handicap to None if not provided
+    if handicap is None:
+        handicap = None
+    
+    # Validate golf_experience (default to Regular if invalid)
+    if golf_experience not in ["Beginner", "Regular", "Confident"]:
+        golf_experience = "Regular"
     
     # Parse llm parameter safely
     llm_raw = llm
@@ -5166,7 +5454,7 @@ async def assess_get(
     
     # Render results with error handling
     try:
-        return await render_assessment_results(course, handicap, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id, debug_mode)
+        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id, debug_mode)
     except Exception as e:
         logger.error(f"Error rendering assessment results: {str(e)}", exc_info=True)
         # Return error page
