@@ -3461,6 +3461,10 @@ async def read_root():
                     grid-template-columns: 1fr 1fr;
                     gap: 16px;
                 }}
+                .form-row-four {{
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 12px;
+                }}
             }}
             label {{
                 display: block;
@@ -3681,8 +3685,8 @@ async def read_root():
                             <div id="course-error" class="error-message">Please select a course</div>
                         </div>
                         
-                        <!-- Row 2: Handicap (left) and Confidence (right) -->
-                        <div class="form-row">
+                        <!-- Row 2: All 4 fields in one row on desktop -->
+                        <div class="form-row form-row-four">
                             <div class="form-group">
                                 <label for="handicap">Handicap</label>
                                 <input type="number" id="handicap" name="handicap" min="0" max="54" value="25">
@@ -3697,10 +3701,7 @@ async def read_root():
                                     <option value="Confident">Confident</option>
                                 </select>
                             </div>
-                        </div>
-                        
-                        <!-- Row 3: Day (left) and Time of day (right) -->
-                        <div class="form-row">
+                            
                             <div class="form-group">
                                 <label for="day">Day</label>
                                 <select id="day" name="day" required>
