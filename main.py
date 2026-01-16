@@ -3441,7 +3441,8 @@ async def read_root():
             }}
             @media (min-width: 900px) {{
                 .form-grid {{
-                    grid-template-columns: 1fr 1fr;
+                    grid-template-columns: 1fr;
+                    gap: 16px;
                 }}
             }}
             .form-group {{
@@ -3450,19 +3451,15 @@ async def read_root():
             .form-group-full {{
                 grid-column: 1 / -1;
             }}
-            @media (min-width: 900px) {{
-                .form-group-full {{
-                    grid-column: 1 / -1;
-                }}
-            }}
             .form-row {{
                 display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 12px;
+                grid-template-columns: 1fr;
+                gap: 16px;
             }}
-            @media (max-width: 640px) {{
+            @media (min-width: 900px) {{
                 .form-row {{
-                    grid-template-columns: 1fr;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 16px;
                 }}
             }}
             label {{
@@ -3664,7 +3661,8 @@ async def read_root():
                 </div>
                 <form method="post" action="/assess" onsubmit="handleFormSubmit(event); return true;">
                     <div class="form-grid">
-                        <div class="form-group">
+                        <!-- Row 1: Course (full width) -->
+                        <div class="form-group form-group-full">
                             <label for="course">Course</label>
                             <div class="course-input-wrapper">
                                 <div class="autocomplete-container">
@@ -3683,39 +3681,46 @@ async def read_root():
                             <div id="course-error" class="error-message">Please select a course</div>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="handicap">Handicap</label>
-                            <input type="number" id="handicap" name="handicap" min="0" max="54" value="25">
-                            <div class="help-text">Optional: only used for tailored tips.</div>
+                        <!-- Row 2: Handicap (left) and Confidence (right) -->
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="handicap">Handicap</label>
+                                <input type="number" id="handicap" name="handicap" min="0" max="54" value="25">
+                                <div class="help-text">Optional: only used for tailored tips.</div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="golf_experience">Confidence</label>
+                                <select id="golf_experience" name="golf_experience">
+                                    <option value="Beginner">Beginner</option>
+                                    <option value="Regular" selected>Regular</option>
+                                    <option value="Confident">Confident</option>
+                                </select>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="golf_experience">Golf experience</label>
-                            <select id="golf_experience" name="golf_experience">
-                                <option value="Beginner">Beginner</option>
-                                <option value="Regular" selected>Regular</option>
-                                <option value="Confident">Confident</option>
-                            </select>
+                        <!-- Row 3: Day (left) and Time of day (right) -->
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="day">Day</label>
+                                <select id="day" name="day" required>
+                                    <option value="Today">Today</option>
+                                    <option value="Tomorrow">Tomorrow</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="time_of_day">Time of day</label>
+                                <select id="time_of_day" name="time_of_day" required>
+                                    <option value="Morning">Morning</option>
+                                    <option value="Midday">Midday</option>
+                                    <option value="Afternoon">Afternoon</option>
+                                    <option value="Evening">Evening</option>
+                                </select>
+                            </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="day">Day</label>
-                            <select id="day" name="day" required>
-                                <option value="Today">Today</option>
-                                <option value="Tomorrow">Tomorrow</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="time_of_day">Time of day</label>
-                            <select id="time_of_day" name="time_of_day" required>
-                                <option value="Morning">Morning</option>
-                                <option value="Midday">Midday</option>
-                                <option value="Afternoon">Afternoon</option>
-                                <option value="Evening">Evening</option>
-                            </select>
-                        </div>
-                        
+                        <!-- Row 4: Button (full width, centred) -->
                         <div class="form-group form-group-full">
                             <div class="button-wrapper">
                                 <button type="submit" class="primary-button" id="submit-button">
