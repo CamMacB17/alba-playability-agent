@@ -5027,7 +5027,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 <div class="cta-title">{view_model['cta_title']}</div>
                 <div class="cta-body">{view_model['cta_body']}</div>
                 <div class="cta-buttons">
-                    <a href="{view_model['download_url']}" class="cta-button-primary">Download Alba</a>
+                    <a href="{ALBA_IOS_URL}" class="cta-button-primary" {EXTERNAL_LINK_ATTRS}>Download on iPhone</a>
+                    <a href="{ALBA_ANDROID_URL}" class="cta-button-primary" {EXTERNAL_LINK_ATTRS}>Download on Android</a>
                     <a href="{ALBA_HOW_IT_WORKS_URL}" class="cta-button-secondary" {EXTERNAL_LINK_ATTRS}>See how Alba works</a>
                 </div>
             </div>
