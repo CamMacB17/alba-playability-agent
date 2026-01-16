@@ -4269,16 +4269,18 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             instead_suggestions = "Range session, short game, putting green, simulator"
         
         instead_section_html = f"""
-            <div class="instead-section">
-                <div class="instead-title">If not, do this instead</div>
-                <div class="instead-suggestions">{instead_suggestions}</div>
-                <div class="instead-subtitle">If you still play</div>
-                <ul class="instead-bullets">
-                    <li>Waterproofs and spare glove</li>
-                    <li>Take one more club and swing smooth</li>
-                    <li>Flight it down in the wind</li>
-                </ul>
-            </div>
+                    <div class="card">
+                        <div class="card-title">If not, do this instead</div>
+                        <div class="card-content">
+                            <div class="instead-suggestions">{instead_suggestions}</div>
+                            <div class="instead-subtitle">But if you do decide to play</div>
+                            <ul class="instead-bullets">
+                                <li>Waterproofs and spare glove</li>
+                                <li>Take one more club and swing smooth</li>
+                                <li>Flight it down in the wind</li>
+                            </ul>
+                        </div>
+                    </div>
         """
     else:
         instead_section_html = ""
@@ -4463,9 +4465,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 }}
             }}
             .verdict-banner {{
-                border-radius: 8px;
-                padding: 14px 18px;
-                margin-bottom: 16px;
+                border-radius: 12px;
+                padding: 20px 24px;
+                margin-bottom: 20px;
                 min-height: 80px;
             }}
             .verdict-banner.great {{
@@ -4576,16 +4578,20 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 grid-template-columns: 1fr;
                 gap: 16px;
                 margin-bottom: 16px;
-                min-height: 300px;
+                align-items: start;
             }}
             @media (min-width: 900px) {{
                 .cards-grid {{
                     grid-template-columns: 1fr 1fr;
-                    min-height: 200px;
                 }}
             }}
+            .card-stack {{
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }}
             .card {{
-                padding: 18px 20px;
+                padding: 16px 18px;
                 background: #303035;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 8px;
@@ -4608,6 +4614,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 font-size: 14px;
                 font-weight: 400;
                 line-height: 1.7;
+                display: flex;
+                flex-direction: column;
             }}
             .why-bullets, .what-bullets {{
                 list-style: none;
@@ -4757,20 +4765,6 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 line-height: 1.4;
                 margin-top: 0;
             }}
-            .instead-section {{
-                margin-top: 20px;
-                margin-bottom: 20px;
-                padding: 16px 18px;
-                background: rgba(255, 255, 255, 0.05);
-                border-radius: 8px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }}
-            .instead-title {{
-                color: var(--alba-cream);
-                font-weight: 600;
-                font-size: 16px;
-                margin-bottom: 8px;
-            }}
             .instead-suggestions {{
                 color: var(--alba-cream);
                 font-weight: 400;
@@ -4807,14 +4801,6 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 font-weight: 600;
             }}
             @media (max-width: 640px) {{
-                .instead-section {{
-                    padding: 14px 16px;
-                    margin-top: 16px;
-                    margin-bottom: 16px;
-                }}
-                .instead-title {{
-                    font-size: 15px;
-                }}
                 .instead-suggestions {{
                     font-size: 13px;
                 }}
@@ -4992,10 +4978,6 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     <body>
         <div class="page-wrap">
         <div class="container">
-            <div class="page-header">
-                <h1 class="page-title">Should I Play Golf Today?</h1>
-                <p class="page-subtitle">A clear, practical breakdown of weather, ground conditions, course pressure, and whether today suits your handicap.</p>
-            </div>
             {verdict_banner_html}
             {feedback_panel_html}
             
@@ -5007,17 +4989,19 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                     </div>
                 </div>
                 
-                <div class="card">
-                    <div class="card-title">{view_model['what_section_title']}</div>
-                    <div class="card-content">
-                        {view_model['what_bullets_html']}
+                <div class="card-stack">
+                    <div class="card">
+                        <div class="card-title">What to do</div>
+                        <div class="card-content">
+                            {view_model['what_bullets_html']}
+                        </div>
                     </div>
+                    
+                    {instead_section_html}
                 </div>
-                
-                {details_html}
             </div>
             
-            {instead_section_html}
+            {details_html}
             
             <div class="cta-card">
                 <div class="cta-title">{view_model['cta_title']}</div>
