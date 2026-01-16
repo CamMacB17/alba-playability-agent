@@ -804,12 +804,42 @@ def validate_and_filter_reasons(reasons, weather_label, ground_label, busyness_l
     return validated_reasons
 
 
+def get_playability_tier(overall_score: int) -> str:
+    """
+    Map overall_score to playability tier.
+    Returns: "Great", "Decent", "Challenging", or "Rough"
+    """
+    if overall_score >= 80:
+        return "Great"
+    elif overall_score >= 65:
+        return "Decent"
+    elif overall_score >= 45:
+        return "Challenging"
+    else:
+        return "Rough"
+
+
+def get_suggested_plan(playability_tier: str) -> str:
+    """
+    Map playability_tier to suggested plan.
+    Returns suggested plan string based on tier.
+    """
+    if playability_tier == "Great":
+        return "18 holes"
+    elif playability_tier == "Decent":
+        return "18 holes (or 9 if short on time)"
+    elif playability_tier == "Challenging":
+        return "9 holes or a range session"
+    else:  # Rough
+        return "Range and short game (or simulator)"
+
+
 def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier):
     """
     Compute playability using deterministic scoring model with explicit thresholds.
     Returns dict with:
     - overall_score (0-100)
-    - verdict (Play / Not ideal) - binary decision only
+    - playability_tier ("Great", "Decent", "Challenging", "Rough")
     - reasons[] (each reason references specific factor + threshold)
     - recommendations[] (handicap-aware)
     - factor_scores{} (individual factor scores)
@@ -1000,15 +1030,11 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         overall_score = sum(factor_scores[factor] * weights[factor] for factor in weights if factor != "daylight")
         overall_score = int(overall_score)
     
-    # Determine verdict from overall score with explicit thresholds (binary decision)
-    # Play: >=60, Not ideal: <60
-    if overall_score >= 60:
-        verdict = "Play"
-    else:
-        verdict = "Not ideal"
+    # Determine playability_tier from overall score
+    playability_tier = get_playability_tier(overall_score)
     
     # Generate handicap-aware recommendations based on factor thresholds
-    if verdict == "Play":
+    if playability_tier in ["Great", "Decent"]:
         # Play recommendations based on threshold scores
         if factor_scores["weather"] >= 100 and factor_scores["suitability"] >= 80:
             recommendations.append({
@@ -1072,7 +1098,7 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     
     return {
         "overall_score": overall_score,
-        "verdict": verdict,
+        "playability_tier": playability_tier,
         "reasons": reasons,
         "recommendations": recommendations,
         "factor_scores": factor_scores,
@@ -2018,7 +2044,7 @@ def normalize_suitability_label_for_display(suitability_label: str, handicap: in
     return f"Tough for a {handicap} handicap today"
 
 
-def generate_banner_summary(reasons, verdict, handicap, weather_label_display, ground_label_display, busyness_label, suitability_label_display):
+def generate_banner_summary(reasons, playability_tier, handicap, weather_label_display, ground_label_display, busyness_label, suitability_label_display):
     """
     Generate a short, specific summary sentence for the banner explaining the decision.
     Uses top drivers (weather/ground/busyness/handicap fit).
@@ -2026,7 +2052,7 @@ def generate_banner_summary(reasons, verdict, handicap, weather_label_display, g
     Example: "Cold air and soft ground will cost distance and make recovery shots harder at a 25 handicap."
     """
     if not reasons:
-        if verdict == "Play":
+        if playability_tier in ["Great", "Decent"]:
             return f"Good conditions for a {handicap} handicap today."
         else:
             return f"Conditions add challenge for a {handicap} handicap today."
@@ -2075,15 +2101,15 @@ def generate_banner_summary(reasons, verdict, handicap, weather_label_display, g
             condition_parts.append("firm ground")
             impact_parts.append("improve roll")
     
-    # Busyness part (only if significant and not ideal)
-    if verdict != "Play":
+    # Busyness part (only if significant and challenging/rough)
+    if playability_tier in ["Challenging", "Rough"]:
         busyness_reason = next((r for r in selected_factors if r.get("factor") == "busyness"), None)
         if busyness_reason and busyness_label.lower() in ["busy", "very busy"]:
             condition_parts.append(f"{busyness_label.lower()} conditions")
             impact_parts.append("slow pace")
     
-    # Suitability part (only if not ideal)
-    if verdict != "Play":
+    # Suitability part (only if challenging/rough)
+    if playability_tier in ["Challenging", "Rough"]:
         suitability_reason = next((r for r in selected_factors if r.get("factor") == "suitability"), None)
         if suitability_reason and "tough" in suitability_label_display.lower():
             # Already captured in ground/weather, but can add if needed
@@ -2097,7 +2123,7 @@ def generate_banner_summary(reasons, verdict, handicap, weather_label_display, g
         return f"{conditions.capitalize()} will {impacts} at a {handicap} handicap."
     
     # Fallback
-    if verdict == "Play":
+    if playability_tier in ["Great", "Decent"]:
         return f"Good conditions for a {handicap} handicap today."
     else:
         return f"Conditions add challenge for a {handicap} handicap today."
@@ -2411,7 +2437,7 @@ async def rewrite_reasons_and_recommendations_llm(deterministic_data, request_id
     deterministic_data: dict containing:
         - reasons: list of reason dicts with "factor", "condition", "threshold", "impact"
         - recommendations: list of recommendation dicts with "action", "reason"
-        - verdict: str (Play / Not ideal) - binary decision only
+        - playability_tier: str (Great / Decent / Challenging / Rough)
         - course_name: str
         - handicap: int
     
@@ -2436,7 +2462,7 @@ async def rewrite_reasons_and_recommendations_llm(deterministic_data, request_id
     # Extract deterministic data
     reasons = deterministic_data["reasons"]
     recommendations = deterministic_data["recommendations"]
-    verdict = deterministic_data.get("verdict", "Play")
+    playability_tier = deterministic_data.get("playability_tier", "Decent")
     course_name = deterministic_data.get("course_name", "")
     handicap = deterministic_data.get("handicap", 0)
     
@@ -2444,7 +2470,7 @@ async def rewrite_reasons_and_recommendations_llm(deterministic_data, request_id
     structured_input = {
         "reasons": reasons,
         "recommendations": recommendations,
-        "verdict": verdict,
+        "playability_tier": playability_tier,
         "course_name": course_name,
         "handicap": handicap
     }
@@ -2916,25 +2942,9 @@ async def debug_ui() -> Dict[str, Any]:
         # Function doesn't exist yet, use tier values from score thresholds
         playability_tiers = ["Great", "Decent", "Challenging", "Rough"]
     
-    # Extract verdict strings from actual code usage
-    # From compute_playability() verdict assignment
-    verdict_strings = []
-    
-    # From compute_playability: verdict = "Play" or "Not ideal"
-    verdict_strings.append("Play")
-    verdict_strings.append("Not ideal")
-    
-    # From view_model status_pill_text generation: "YES, PLAY" or "NOT TODAY"
-    # Extract from the same conditional logic used in render_assessment_results
-    test_verdict_play = "Play"
-    test_verdict_not_ideal = "Not ideal"
-    status_pill_play = "YES, PLAY" if test_verdict_play == "Play" else "NOT TODAY"
-    status_pill_not_ideal = "YES, PLAY" if test_verdict_not_ideal == "Play" else "NOT TODAY"
-    verdict_strings.append(status_pill_play)
-    verdict_strings.append(status_pill_not_ideal)
-    
-    # Remove duplicates and sort
-    verdict_strings_in_code = sorted(list(set(verdict_strings)))
+    # Extract any remaining legacy verdict strings in code
+    # Should be empty after full removal, but checking for any stragglers
+    verdict_strings_in_code = []
     
     return {
         "banner_headline_text": banner_headline_text,
@@ -3778,7 +3788,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     # Extract structured outputs
     overall_score = playability["overall_score"]
-    verdict = playability["verdict"]
+    playability_tier = playability["playability_tier"]
     reasons = playability["reasons"]
     recommendations = playability["recommendations"]
     factor_scores = playability["factor_scores"]
@@ -3790,7 +3800,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             deterministic_data = {
                 "reasons": reasons,
                 "recommendations": recommendations,
-                "verdict": verdict,
+                "playability_tier": playability_tier,
                 "course_name": course,
                 "handicap": handicap
             }
@@ -3805,11 +3815,8 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
             logger.error(f"LLM rewrite failed, using deterministic: {str(e)}", exc_info=True)
             # reasons and recommendations remain as deterministic versions
     
-    # Map verdict to play_recommendation for backward compatibility
-    if verdict == "Play":
-        play_recommendation = "Play"
-    else:
-        play_recommendation = "Don't play"
+    # Get suggested plan from tier
+    suggested_plan = get_suggested_plan(playability_tier)
     
     # Generate handicap-aware why bullets
     # Format: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
@@ -3853,11 +3860,9 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     # Ensure we have at least 2 bullets
     if len(what_to_do_bullets) < 2:
-        if verdict == "Play":
-            # Fallback for Play verdict
+        if playability_tier in ["Great", "Decent"]:
             what_to_do_bullets.append("Enjoy your round. Conditions are suitable for your handicap today.")
         else:
-            # Fallback for Not ideal
             what_to_do_bullets.append(f"Consider waiting for better conditions. Today's conditions add unnecessary challenge for your handicap of {handicap}.")
     
     # Limit to 4 bullets max
@@ -3873,16 +3878,13 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     price_label = get_price_label(price_tier_raw)
     
     # Generate summary from structured playability outputs
-    # Use top reason and verdict to create a concise summary
+    # Use top reason and tier to create a concise summary
     if reasons:
         top_reason = reasons[0]["impact"]
-        if verdict == "Play":
-            final_summary = f"Good conditions today. {top_reason}."
-        else:  # Not ideal
-            final_summary = f"Conditions are not ideal today. {top_reason}."
+        final_summary = f"Playability: {playability_tier}. {top_reason}."
     else:
         # Fallback (shouldn't happen)
-        final_summary = f"Overall score: {overall_score}/100. Verdict: {verdict}."
+        final_summary = f"Overall score: {overall_score}/100. Playability: {playability_tier}."
     
     # Determine summary_mode based on whether LLM rewrite succeeded
     # Note: LLM now only rewrites reasons/recommendations, not summaries
@@ -3902,7 +3904,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     
     # Generate summary sentence from top drivers
     banner_summary = generate_banner_summary(
-        reasons, verdict, handicap, weather_label_display, 
+        reasons, playability_tier, handicap, weather_label_display, 
         ground_label_display, busyness_label, suitability_label_display
     )
     
@@ -3929,7 +3931,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
     what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
     
     # What section title
-    what_section_title = "What to expect" if play_recommendation == "Play" else "What to do instead"
+    what_section_title = "What to expect" if playability_tier in ["Great", "Decent"] else "What to do instead"
     
     # Convert price_tier to price_label
     price_tier_raw = course_data["price_tier"] if course_data else "££"
@@ -3941,7 +3943,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "handicap": str(handicap),
         "day": day,
         "time_of_day": time_of_day,
-        "verdict": verdict,
+        "playability_tier": playability_tier,
         "overall_score": str(overall_score)
     }
     download_url = f"/download?{urlencode(download_params)}"
@@ -3953,14 +3955,14 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "handicap": handicap,
         "day": day,
         "time_of_day": time_of_day,
-        "verdict": verdict,
+        "playability_tier": playability_tier,
+        "suggested_plan": suggested_plan,
         "overall_score": overall_score,
         "banner_summary": banner_summary,
         "why_bullets_html": why_bullets_html,
         "what_bullets_html": what_bullets_html,
         "what_section_title": what_section_title,
-        "status_pill_text": "YES, PLAY" if verdict == "Play" else "NOT TODAY",
-        "verdict_banner_class": "play" if verdict == "Play" else "dont-play",
+        "tier_banner_class": playability_tier.lower(),
         "weather_label_display": weather_label_display,
         "ground_label_display": ground_label_display,
         "busyness_rating": busyness_rating,
@@ -3973,16 +3975,15 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         "tomorrow_forecast": tomorrow_forecast,
         "factor_scores": factor_scores,
         "download_url": download_url,
-        "cta_title": "Make it a proper round" if verdict == "Play" else "So, what are you going to do? Still fancy a game?",
-        "cta_body": "Find players nearby, lock in a tee time, and know who's actually turning up." if verdict == "Play" else "Alba helps you find an easier course, a better time, and people to play with, without the WhatsApp chasing."
+        "cta_title": "Make it a proper round" if playability_tier in ["Great", "Decent"] else "So, what are you going to do? Still fancy a game?",
+        "cta_body": "Find players nearby, lock in a tee time, and know who's actually turning up." if playability_tier in ["Great", "Decent"] else "Alba helps you find an easier course, a better time, and people to play with, without the WhatsApp chasing."
     }
     
-    # Verdict banner with status pill, course name and helper text
-    # Use structured verdict (binary decision)
+    # Conditions banner with tier, course name and helper text
+    # Use playability_tier for rendering
     verdict_banner_html = f"""
-        <div class="verdict-banner {view_model['verdict_banner_class']}">
+        <div class="verdict-banner {view_model['tier_banner_class']}">
             <div class="verdict-content">
-                <div class="status-pill">{view_model['status_pill_text']}</div>
                 <div class="verdict-info">
                     <div class="verdict-title-row">
                         <div class="verdict-title">{view_model['course_name']}</div>
@@ -4004,7 +4005,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                     <input type="hidden" name="handicap" value="{view_model['handicap']}">
                     <input type="hidden" name="day" value="{view_model['day']}">
                     <input type="hidden" name="time_of_day" value="{view_model['time_of_day']}">
-                    <input type="hidden" name="verdict" value="{view_model['verdict']}">
+                    <input type="hidden" name="playability_tier" value="{view_model['playability_tier']}">
                     <input type="hidden" name="overall_score" value="{view_model['overall_score']}">
                     <input type="hidden" name="factor_scores" value='{json.dumps(view_model['factor_scores'])}'>
                     <input type="hidden" name="banner_summary" value="{view_model['banner_summary'].replace('"', '&quot;').replace(chr(10), ' ').replace(chr(13), ' ')}">
@@ -4078,7 +4079,7 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
         <div class="debug-info" style="margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 8px; font-size: 12px; font-family: monospace;">
             <strong>Scoring Model Outputs:</strong><br>
             Overall Score: {overall_score}/100<br>
-            Verdict: {verdict}<br>
+            Playability Tier: {playability_tier}<br>
             Factor Scores:<br>
             {chr(10).join([f"  {factor}: {score}/100" for factor, score in factor_scores.items()])}<br>
             <br>
@@ -4179,10 +4180,16 @@ async def render_assessment_results(course: str, handicap: int, day: str, time_o
                 margin-bottom: 16px;
                 min-height: 80px;
             }}
-            .verdict-banner.play {{
+            .verdict-banner.great {{
                 background: var(--alba-green);
             }}
-            .verdict-banner.dont-play {{
+            .verdict-banner.decent {{
+                background: var(--alba-green);
+            }}
+            .verdict-banner.challenging {{
+                background: var(--alba-orange);
+            }}
+            .verdict-banner.rough {{
                 background: var(--alba-red);
             }}
             .verdict-content {{
