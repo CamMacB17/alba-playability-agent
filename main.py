@@ -4270,11 +4270,11 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             instead_suggestions = "Range session, short game, putting green, simulator"
         
         instead_section_html = f"""
-                    <div class="card">
-                        <div class="card-title">If not, do this instead</div>
+                    <div class="card card-instead">
+                        <div class="card-title">If not, try this instead</div>
                         <div class="card-content">
                             <div class="instead-suggestions">{instead_suggestions}</div>
-                            <div class="instead-subtitle">But if you do decide to play</div>
+                            <div class="instead-subtitle">And if you did decide to play...</div>
                             <ul class="instead-bullets">
                                 <li>Waterproofs and spare glove</li>
                                 <li>Take one more club and swing smooth</li>
@@ -4579,7 +4579,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 grid-template-columns: 1fr;
                 gap: 16px;
                 margin-bottom: 16px;
-                align-items: start;
+                align-items: stretch;
             }}
             @media (min-width: 900px) {{
                 .cards-grid {{
@@ -4598,6 +4598,11 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 border-radius: 8px;
                 box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
                 transition: transform 0.2s ease, box-shadow 0.2s ease;
+                display: flex;
+                flex-direction: column;
+            }}
+            .card.card-instead {{
+                border: 1px solid var(--alba-green);
             }}
             .card:hover {{
                 transform: translateY(-1px);
@@ -4617,6 +4622,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 line-height: 1.7;
                 display: flex;
                 flex-direction: column;
+                flex-grow: 1;
             }}
             .why-bullets, .what-bullets {{
                 list-style: none;
@@ -4655,6 +4661,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 border-radius: 8px;
                 box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
                 overflow: hidden;
+                margin-bottom: 20px;
             }}
             .details-summary {{
                 display: flex;
@@ -4992,7 +4999,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 
                 <div class="card-stack">
                     <div class="card">
-                        <div class="card-title">What to do</div>
+                        <div class="card-title">What you could do</div>
                         <div class="card-content">
                             {view_model['what_bullets_html']}
                         </div>
