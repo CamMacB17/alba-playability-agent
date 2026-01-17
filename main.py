@@ -3399,11 +3399,13 @@ async def read_root():
                 }}
             }}
             .form-card {{
-                background: #303035;
+                background: linear-gradient(to bottom, rgba(48, 48, 53, 0.95), #303035);
                 border-radius: 12px;
                 padding: 20px;
                 border: 1px solid rgba(255, 255, 255, 0.05);
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                box-shadow: 
+                    0 2px 12px rgba(0, 0, 0, 0.25),
+                    0 1px 4px rgba(0, 0, 0, 0.15);
             }}
             .form-header {{
                 margin-bottom: 16px;
@@ -3488,7 +3490,10 @@ async def read_root():
             select:focus, input[type="number"]:focus, input[type="text"]:focus {{
                 outline: none;
                 border-color: var(--alba-orange);
-                box-shadow: 0 0 0 3px rgba(247, 130, 34, 0.2);
+                box-shadow: 
+                    0 0 0 3px rgba(247, 130, 34, 0.2),
+                    0 0 12px rgba(247, 130, 34, 0.15),
+                    0 0 24px rgba(247, 130, 34, 0.08);
             }}
             .course-input-wrapper {{
                 position: relative;
@@ -3540,6 +3545,9 @@ async def read_root():
                 background: rgba(247, 130, 34, 0.2);
                 border-color: var(--alba-orange);
                 color: var(--alba-cream);
+                box-shadow: 
+                    0 0 8px rgba(247, 130, 34, 0.3),
+                    0 0 16px rgba(247, 130, 34, 0.15);
             }}
             .autocomplete-container {{
                 position: relative;
@@ -3614,6 +3622,10 @@ async def read_root():
                 transition: all 0.2s ease;
                 width: 100%;
                 margin-top: 0;
+                box-shadow: 
+                    0 2px 8px rgba(247, 130, 34, 0.25),
+                    0 0 16px rgba(247, 130, 34, 0.15),
+                    0 0 32px rgba(247, 130, 34, 0.08);
             }}
             @media (min-width: 900px) {{
                 .primary-button {{
@@ -3624,6 +3636,10 @@ async def read_root():
             .primary-button:hover {{
                 background: var(--alba-yellow);
                 transform: translateY(-1px);
+                box-shadow: 
+                    0 2px 12px rgba(251, 185, 36, 0.35),
+                    0 0 20px rgba(251, 185, 36, 0.2),
+                    0 0 40px rgba(251, 185, 36, 0.1);
             }}
             .primary-button:active {{
                 transform: translateY(0);
@@ -4485,15 +4501,27 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             }}
             .verdict-banner.great {{
                 background: var(--alba-green);
+                box-shadow: 
+                    0 0 16px rgba(74, 155, 90, 0.25),
+                    0 0 32px rgba(74, 155, 90, 0.12);
             }}
             .verdict-banner.decent {{
                 background: var(--alba-green);
+                box-shadow: 
+                    0 0 16px rgba(74, 155, 90, 0.25),
+                    0 0 32px rgba(74, 155, 90, 0.12);
             }}
             .verdict-banner.challenging {{
                 background: var(--alba-orange);
+                box-shadow: 
+                    0 0 20px rgba(247, 130, 34, 0.3),
+                    0 0 40px rgba(247, 130, 34, 0.15);
             }}
             .verdict-banner.rough {{
                 background: var(--alba-red);
+                box-shadow: 
+                    0 0 16px rgba(226, 54, 66, 0.25),
+                    0 0 32px rgba(226, 54, 66, 0.12);
             }}
             .verdict-content {{
                 display: flex;
@@ -4526,12 +4554,14 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 font-size: 18px;
                 flex: 1;
                 min-width: 0;
+                text-shadow: 0 0 8px rgba(255, 247, 224, 0.2);
             }}
             .verdict-primary-label {{
                 color: var(--alba-cream);
                 font-weight: 500;
                 font-size: 16px;
                 margin-top: 4px;
+                text-shadow: 0 0 6px rgba(255, 247, 224, 0.15);
             }}
             .verdict-secondary-label {{
                 color: var(--alba-cream);
@@ -4539,6 +4569,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 font-size: 14px;
                 margin-top: 2px;
                 opacity: 0.9;
+                text-shadow: 0 0 4px rgba(255, 247, 224, 0.1);
             }}
             .verdict-course {{
                 color: var(--alba-cream);
@@ -4605,10 +4636,12 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             }}
             .card {{
                 padding: 16px 18px;
-                background: #303035;
+                background: linear-gradient(to bottom, rgba(48, 48, 53, 0.95), #303035);
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 8px;
-                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+                box-shadow: 
+                    0 2px 10px rgba(0, 0, 0, 0.25),
+                    0 1px 4px rgba(0, 0, 0, 0.15);
                 transition: transform 0.2s ease, box-shadow 0.2s ease;
                 display: flex;
                 flex-direction: column;
@@ -4618,7 +4651,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             }}
             .card:hover {{
                 transform: translateY(-1px);
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                box-shadow: 
+                    0 4px 14px rgba(0, 0, 0, 0.3),
+                    0 2px 8px rgba(0, 0, 0, 0.2);
             }}
             .card-title {{
                 font-weight: 700;
@@ -4654,6 +4689,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 color: var(--alba-orange);
                 font-size: 16px;
                 line-height: 1.4;
+                text-shadow: 
+                    0 0 8px rgba(247, 130, 34, 0.6),
+                    0 0 16px rgba(247, 130, 34, 0.3);
             }}
             .what-bullets li:before {{
                 content: "•";
@@ -4662,16 +4700,21 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 color: var(--alba-orange);
                 font-size: 16px;
                 line-height: 1.4;
+                text-shadow: 
+                    0 0 8px rgba(247, 130, 34, 0.6),
+                    0 0 16px rgba(247, 130, 34, 0.3);
             }}
             .card-content p {{
                 margin: 0;
             }}
             .details-card {{
                 grid-column: 1 / -1;
-                background: #303035;
+                background: linear-gradient(to bottom, rgba(48, 48, 53, 0.95), #303035);
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 8px;
-                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+                box-shadow: 
+                    0 2px 10px rgba(0, 0, 0, 0.25),
+                    0 1px 4px rgba(0, 0, 0, 0.15);
                 overflow: hidden;
                 margin-bottom: 20px;
             }}
@@ -4819,6 +4862,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 left: 0;
                 color: var(--alba-yellow);
                 font-weight: 600;
+                text-shadow: 
+                    0 0 8px rgba(251, 185, 36, 0.6),
+                    0 0 16px rgba(251, 185, 36, 0.3);
             }}
             @media (max-width: 640px) {{
                 .instead-suggestions {{
@@ -4835,17 +4881,25 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 text-decoration: none;
                 font-weight: 500;
                 font-size: 14px;
-                transition: color 0.2s ease;
+                transition: color 0.2s ease, text-shadow 0.2s ease;
+                text-shadow: 
+                    0 0 8px rgba(251, 185, 36, 0.5),
+                    0 0 16px rgba(251, 185, 36, 0.25);
             }}
             .back-link:hover {{
                 color: var(--alba-orange);
+                text-shadow: 
+                    0 0 10px rgba(247, 130, 34, 0.6),
+                    0 0 20px rgba(247, 130, 34, 0.3);
             }}
             .cta-card {{
                 padding: 18px 20px;
-                background: #303035;
+                background: linear-gradient(to bottom, rgba(48, 48, 53, 0.95), #303035);
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 border-radius: 8px;
-                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+                box-shadow: 
+                    0 2px 10px rgba(0, 0, 0, 0.25),
+                    0 1px 4px rgba(0, 0, 0, 0.15);
                 margin-bottom: 16px;
             }}
             .cta-title {{
@@ -4883,11 +4937,21 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 font-weight: 500;
                 font-size: 14px;
                 text-align: center;
-                transition: background 0.2s ease;
+                transition: background 0.2s ease, box-shadow 0.2s ease, text-shadow 0.2s ease;
                 flex: 1;
+                box-shadow: 
+                    0 2px 8px rgba(247, 130, 34, 0.25),
+                    0 0 16px rgba(247, 130, 34, 0.15),
+                    0 0 32px rgba(247, 130, 34, 0.08);
+                text-shadow: 0 0 4px rgba(255, 247, 224, 0.2);
             }}
             .cta-button-primary:hover {{
                 background: #E6731F;
+                box-shadow: 
+                    0 2px 12px rgba(247, 130, 34, 0.35),
+                    0 0 20px rgba(247, 130, 34, 0.2),
+                    0 0 40px rgba(247, 130, 34, 0.1);
+                text-shadow: 0 0 6px rgba(255, 247, 224, 0.3);
             }}
             .cta-button-secondary {{
                 display: inline-block;
@@ -4979,10 +5043,20 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 font-size: 14px;
                 font-family: 'Poppins', sans-serif;
                 cursor: pointer;
-                transition: background 0.2s ease;
+                transition: background 0.2s ease, box-shadow 0.2s ease, text-shadow 0.2s ease;
+                box-shadow: 
+                    0 2px 8px rgba(247, 130, 34, 0.25),
+                    0 0 16px rgba(247, 130, 34, 0.15),
+                    0 0 32px rgba(247, 130, 34, 0.08);
+                text-shadow: 0 0 4px rgba(255, 247, 224, 0.2);
             }}
             .feedback-submit:hover {{
                 background: #E6731F;
+                box-shadow: 
+                    0 2px 12px rgba(247, 130, 34, 0.35),
+                    0 0 20px rgba(247, 130, 34, 0.2),
+                    0 0 40px rgba(247, 130, 34, 0.1);
+                text-shadow: 0 0 6px rgba(255, 247, 224, 0.3);
             }}
             .feedback-submit:disabled {{
                 opacity: 0.5;
