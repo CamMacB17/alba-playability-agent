@@ -3425,12 +3425,22 @@ async def read_root():
                 font-size: 17px;
                 line-height: 1.4;
             }}
+            .form-status {{
+                color: rgba(255, 247, 224, 0.6);
+                font-weight: 300;
+                font-size: 15px;
+                line-height: 1.4;
+                margin-top: 8px;
+            }}
             @media (max-width: 640px) {{
                 .form-title {{
                     font-size: 32px;
                 }}
                 .form-subtitle {{
                     font-size: 16px;
+                }}
+                .form-status {{
+                    font-size: 14px;
                 }}
             }}
             form {{
@@ -3689,7 +3699,8 @@ async def read_root():
             <div class="form-card">
                 <div class="form-header">
                     <h1 class="form-title">Should I Play Golf Today?</h1>
-                    <p class="form-subtitle">A clear, practical breakdown of weather, ground conditions, course pressure, and whether today suits your handicap.</p>
+                    <p class="form-subtitle">A practical breakdown of weather, ground conditions, course pressure, and handicap suitability.</p>
+                    <p class="form-status">Currently analysing real-world playability across London golf courses.</p>
                 </div>
                 <form method="post" action="/assess" onsubmit="handleFormSubmit(event); return true;">
                     <div class="form-grid">
