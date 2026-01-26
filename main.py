@@ -8397,6 +8397,8 @@ async def assess_get(
         if is_hard_failure:
             # Hard failure: show error page
             logger.error(f"Hard failure rendering assessment results (request_id={request_id}): {str(e)}", exc_info=True)
+            # Temporary detailed logging before error page render
+            logger.error(f"ERROR_PAGE_RENDER: exception_type={type(e).__name__} exception_message={str(e)} request_id={request_id}", exc_info=True)
             return f"""
         <!DOCTYPE html>
         <html>
@@ -8472,6 +8474,8 @@ async def assess_get(
             except Exception as retry_exception:
                 # If retry also fails, this is likely a hard failure - show error page
                 logger.error(f"Retry with templates also failed (request_id={request_id}): {str(retry_exception)}", exc_info=True)
+                # Temporary detailed logging before error page render
+                logger.error(f"ERROR_PAGE_RENDER: exception_type={type(retry_exception).__name__} exception_message={str(retry_exception)} request_id={request_id}", exc_info=True)
                 return f"""
         <!DOCTYPE html>
         <html>
