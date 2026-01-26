@@ -3239,20 +3239,22 @@ Tone:
         raise
 
 
-async def generate_explanation(assessment_data, llm_effective_enabled=False) -> Tuple[str, str]:
+async def generate_explanation(assessment_data) -> Tuple[str, str]:
     """
-    Generate explanation paragraph. Always uses LLM if available, otherwise falls back to deterministic version.
+    Generate explanation paragraph. Always uses LLM if available (default behavior), otherwise falls back to deterministic version.
     
     assessment_data: dict containing all required fields for structured LLM input
-    llm_effective_enabled: computed effective LLM enabled status (for badge display)
     
     Returns: tuple of (explanation_text, summary_mode)
         summary_mode: "LLM", "Deterministic (LLM failed)", or "Deterministic"
     """
+    # LLM is always enabled by default if openai_client is available
+    llm_effective_enabled = bool(openai_client)
+    
     # Always try LLM if openai_client is available
     if openai_client:
         # Log that OpenAI call is being executed
-        logger.info("LLM: executing OpenAI call")
+        logger.info("LLM: executing OpenAI call (default-on)")
         
         # Try LLM, fall back gracefully to deterministic on any error
         try:
@@ -3592,14 +3594,15 @@ async def get_courses(
 async def debug_openai() -> Dict[str, Any]:
     """
     Debug endpoint to check OpenAI setup.
-    Returns JSON with import status, version, client creation status, and API key presence.
+    Returns JSON with import status, version, client creation status, API key presence, and LLM effective status.
     Must not crash even if imports fail.
     """
     result = {
         "openai_import_ok": False,
         "openai_version": "unknown",
         "client_created": False,
-        "has_openai_key": bool(OPENAI_API_KEY)
+        "has_openai_key": bool(OPENAI_API_KEY),
+        "llm_effective": bool(openai_client)
     }
     
     # Try to import openai
@@ -5799,9 +5802,11 @@ async def assess_get(
     
     # LLM is always enabled if OPENAI_API_KEY exists (no query params needed)
     has_openai_key = bool(OPENAI_API_KEY)
+    llm_flag = "default-on"  # LLM is always on by default if key exists
+    llm_effective = bool(openai_client)  # Effective LLM status
     
     # Log assessment start with debug info
-    logger.info(f"ASSESS: request_id={request_id} has_key={has_openai_key} llm_enabled={bool(openai_client)}")
+    logger.info(f"ASSESS: request_id={request_id} llm_flag={llm_flag} has_key={has_openai_key} llm_effective={llm_effective}")
     
     # Render results with error handling
     try:
