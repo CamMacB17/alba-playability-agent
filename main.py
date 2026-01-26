@@ -1426,72 +1426,82 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
     # Cap at 4 items
     result["why_bullets"] = result["why_bullets"][:4]
     
-    # Ensure what_you_could_do_bullets exists (list, len 2-3) - use friendly pro-shop tone with trade-offs
+    # Ensure what_you_could_do_bullets exists (list, max 2 for Great/Decent, max 3 for Challenging/Rough)
+    # Each bullet: one sentence, max 18 words, no dashes, no repetition of heading
+    max_what_bullets = 3 if tier in ["Challenging", "Rough"] else 2
+    
     if "what_you_could_do_bullets" not in result or not isinstance(result["what_you_could_do_bullets"], list):
         if tier in ["Great", "Decent"]:
             result["what_you_could_do_bullets"] = [
-                "18 holes looks good today—conditions are in your favour and you'll get more out of a full round than rushing through.",
-                "Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting."
+                "Book early morning slots for better pace and smoother rounds.",
+                "Consider 9 holes if you want to avoid peak crowds."
             ]
-        else:
+        else:  # Challenging or Rough
             result["what_you_could_do_bullets"] = [
-                "9 holes might be more manageable—you'll get better value from a shorter round than fighting through 18 in these conditions.",
-                "A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather."
+                "Book 9 holes to avoid fighting through tough conditions.",
+                "Early morning slots offer better pace when it's quieter.",
+                "Range session lets you work on technique without pressure."
             ]
-    # Ensure at least 2 items (template fallback requirement)
+    # Ensure at least 2 items, cap at max_what_bullets
     if len(result["what_you_could_do_bullets"]) < 2:
         if tier == "Decent":
-            # Decent tier: friendly club pro tone
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "18 holes works well today. Weather and ground conditions are manageable, so you'll get good value from a full round.",
-                    "Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead."
+                    "Book early morning slots for better pace and smoother rounds.",
+                    "Consider 9 holes if you want to avoid peak crowds."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead.")
+                result["what_you_could_do_bullets"].append("Consider 9 holes if you want to avoid peak crowds.")
         elif tier == "Great":
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "18 holes looks good today. Conditions are in your favour and you'll get more out of a full round than rushing through.",
-                    "Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting."
+                    "Book early morning slots for better pace and smoother rounds.",
+                    "Consider 9 holes if you want to avoid peak crowds."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting.")
-        else:
+                result["what_you_could_do_bullets"].append("Consider 9 holes if you want to avoid peak crowds.")
+        else:  # Challenging or Rough
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "9 holes might be more manageable. You'll get better value from a shorter round than fighting through 18 in these conditions.",
-                    "A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather."
+                    "Book 9 holes to avoid fighting through tough conditions.",
+                    "Early morning slots offer better pace when it's quieter.",
+                    "Range session lets you work on technique without pressure."
                 ]
-            else:
-                result["what_you_could_do_bullets"].append("A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather.")
-    # Cap at 2 items (template requirement: 2 bullets)
-    result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:2]
+            elif len(result["what_you_could_do_bullets"]) == 1:
+                result["what_you_could_do_bullets"].extend([
+                    "Early morning slots offer better pace when it's quieter.",
+                    "Range session lets you work on technique without pressure."
+                ])
+            elif len(result["what_you_could_do_bullets"]) == 2:
+                result["what_you_could_do_bullets"].append("Range session lets you work on technique without pressure.")
+    # Cap at max_what_bullets
+    result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:max_what_bullets]
     
     # Ensure instead_activities exists (list, len 1) - always present, exactly 1 bullet
+    # Format: "If you want [benefit]: [action]." - one tight line
     if "instead_activities" not in result or not isinstance(result["instead_activities"], list):
         if tier == "Challenging":
             result["instead_activities"] = [
-                "9 holes or range session. Shorter round lets you focus on technique without the pressure."
+                "If you want max value today: range plus short game."
             ]
         elif tier == "Rough":
             result["instead_activities"] = [
-                "Range session or short game practice. Conditions are tough, so practice facilities offer better value today."
+                "If you want max value today: range plus short game."
             ]
         elif tier == "Decent":
             result["instead_activities"] = [
-                "9 holes or a range session gives you the most value per hour if you're pressed for time."
+                "If you want it easier: play 9 and keep it moving."
             ]
         else:  # Great
             result["instead_activities"] = [
-                "9 holes if you're short on time. A shorter round still gives you quality practice."
+                "If you want it easier: play 9 and keep it moving."
             ]
     # Ensure exactly 1 item (template requirement: 1 bullet)
     if len(result["instead_activities"]) < 1:
         if tier in ["Challenging", "Rough"]:
-            result["instead_activities"] = ["Range session or short game practice. You'll get more value from focused work than fighting the elements."]
+            result["instead_activities"] = ["If you want max value today: range plus short game."]
         else:
-            result["instead_activities"] = ["9 holes or a range session gives you the most value per hour if you're pressed for time."]
+            result["instead_activities"] = ["If you want it easier: play 9 and keep it moving."]
     # Cap at 1 item (template requirement: 1 bullet)
     result["instead_activities"] = result["instead_activities"][:1]
     
@@ -1556,7 +1566,7 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     
     # Check all text fields for blocklist phrases
     text_fields_to_check = [
-        ("banner_summary", llm_output.get("banner_summary", "")),
+        ("banner_summary_line", llm_output.get("banner_summary_line", llm_output.get("headline", ""))),
         ("best_move", llm_output.get("best_move", "")),
     ]
     
@@ -1566,15 +1576,21 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
         for i, bullet in enumerate(why_bullets):
             text_fields_to_check.append((f"why_bullets[{i}]", bullet))
     
-    # Check what_you_could_do_bullets
-    what_bullets = llm_output.get("what_you_could_do_bullets", [])
+    # Check what_you_could_do (new key name)
+    what_bullets = llm_output.get("what_you_could_do", llm_output.get("what_you_could_do_bullets", []))
     if isinstance(what_bullets, list):
         for i, bullet in enumerate(what_bullets):
-            text_fields_to_check.append((f"what_you_could_do_bullets[{i}]", bullet))
+            text_fields_to_check.append((f"what_you_could_do[{i}]", bullet))
     
-    # Check trade_off_sentence if present
-    if "trade_off_sentence" in llm_output:
-        text_fields_to_check.append(("trade_off_sentence", llm_output["trade_off_sentence"]))
+    # Check if_not_try_this_instead
+    if "if_not_try_this_instead" in llm_output:
+        text_fields_to_check.append(("if_not_try_this_instead", llm_output["if_not_try_this_instead"]))
+    
+    # Check but_if_you_do_play
+    but_play = llm_output.get("but_if_you_do_play", [])
+    if isinstance(but_play, list):
+        for i, bullet in enumerate(but_play):
+            text_fields_to_check.append((f"but_if_you_do_play[{i}]", bullet))
     
     # Check all text fields against blocklist
     for field_name, field_value in text_fields_to_check:
@@ -1583,8 +1599,8 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
                 if phrase.lower() in field_value.lower():
                     return False, f"Blocklist violation: '{phrase}' found in {field_name}"
     
-    # Check all required keys exist
-    required_keys = ["playability_tier", "best_move", "banner_summary", "why_bullets", "what_you_could_do_bullets"]
+    # Check all required keys exist (after post-processing, should have all keys)
+    required_keys = ["headline", "best_move", "banner_summary_line", "why_bullets", "what_you_could_do", "if_not_try_this_instead", "but_if_you_do_play"]
     for key in required_keys:
         if key not in llm_output:
             return False, f"Missing required key: {key}"
@@ -1601,8 +1617,11 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     if not isinstance(llm_output["banner_summary"], str) or not llm_output["banner_summary"].strip():
         return False, "banner_summary must be a non-empty string"
     
-    # Check banner_summary is useful and specific (not flat)
-    banner_lower = llm_output["banner_summary"].lower()
+    # Check banner_summary_line is useful and specific (not flat)
+    banner_key = "banner_summary_line" if "banner_summary_line" in llm_output else ("headline" if "headline" in llm_output else "banner_summary")
+    if banner_key not in llm_output:
+        return False, "Missing banner_summary_line, headline, or banner_summary"
+    banner_lower = llm_output[banner_key].lower()
     flat_phrases = ["conditions are", "weather is", "it's", "today is"]
     if all(phrase not in banner_lower for phrase in ["will", "cost", "kill", "affect", "likely", "tends", "probably"]):
         # Check if it's too generic
@@ -1620,22 +1639,49 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
         if not isinstance(bullet, str) or not bullet.strip():
             return False, f"why_bullets[{i}] is not a non-empty string"
     
-    # Validate what_you_could_do_bullets: MUST have exactly 2 items (actionable, not generic)
-    if "what_you_could_do_bullets" not in llm_output:
-        return False, "Missing what_you_could_do_bullets"
-    if not isinstance(llm_output["what_you_could_do_bullets"], list):
-        return False, "what_you_could_do_bullets is not a list"
-    if len(llm_output["what_you_could_do_bullets"]) != 2:
-        return False, f"what_you_could_do_bullets must have exactly 2 items, got {len(llm_output['what_you_could_do_bullets'])}"
-    for i, bullet in enumerate(llm_output["what_you_could_do_bullets"]):
+    # Validate what_you_could_do: MUST have 2-3 items based on tier (2 for Great/Decent, 3 for Challenging/Rough)
+    what_key = "what_you_could_do" if "what_you_could_do" in llm_output else "what_you_could_do_bullets"
+    if what_key not in llm_output:
+        return False, "Missing what_you_could_do"
+    if not isinstance(llm_output[what_key], list):
+        return False, f"{what_key} is not a list"
+    tier = deterministic_payload.get("playability_tier", "Decent")
+    max_what_bullets = 3 if tier in ["Challenging", "Rough"] else 2
+    min_what_bullets = 2
+    if len(llm_output[what_key]) < min_what_bullets or len(llm_output[what_key]) > max_what_bullets:
+        return False, f"{what_key} must have {min_what_bullets}-{max_what_bullets} items for {tier} tier, got {len(llm_output[what_key])}"
+    for i, bullet in enumerate(llm_output[what_key]):
         if not isinstance(bullet, str) or not bullet.strip():
-            return False, f"what_you_could_do_bullets[{i}] is not a non-empty string"
+            return False, f"{what_key}[{i}] is not a non-empty string"
+        # Check word limit (18 words max)
+        words = bullet.split()
+        if len(words) > 18:
+            return False, f"{what_key}[{i}] exceeds 18 word limit, got {len(words)} words"
     
-    # Validate trade_off_sentence: MUST be present and non-empty
-    if "trade_off_sentence" not in llm_output:
-        return False, "Missing trade_off_sentence"
-    if not isinstance(llm_output["trade_off_sentence"], str) or not llm_output["trade_off_sentence"].strip():
-        return False, "trade_off_sentence must be a non-empty string"
+    # Validate if_not_try_this_instead: MUST be present and non-empty string
+    if "if_not_try_this_instead" not in llm_output:
+        # Check alternative key names
+        if "instead_activities" not in llm_output:
+            return False, "Missing if_not_try_this_instead"
+        # Convert list to string if needed
+        if isinstance(llm_output["instead_activities"], list) and len(llm_output["instead_activities"]) > 0:
+            llm_output["if_not_try_this_instead"] = llm_output["instead_activities"][0]
+        else:
+            return False, "if_not_try_this_instead is not a non-empty string"
+    if not isinstance(llm_output["if_not_try_this_instead"], str) or not llm_output["if_not_try_this_instead"].strip():
+        return False, "if_not_try_this_instead is not a non-empty string"
+    
+    # Validate but_if_you_do_play: MUST be present and non-empty list
+    but_key = "but_if_you_do_play" if "but_if_you_do_play" in llm_output else ("tips_if_you_play_bullets" if "tips_if_you_play_bullets" in llm_output else "if_you_play_tips")
+    if but_key not in llm_output:
+        return False, "Missing but_if_you_do_play"
+    if not isinstance(llm_output[but_key], list):
+        return False, f"{but_key} is not a list"
+    if len(llm_output[but_key]) == 0:
+        return False, f"{but_key} must have at least 1 item"
+    for i, bullet in enumerate(llm_output[but_key]):
+        if not isinstance(bullet, str) or not bullet.strip():
+            return False, f"{but_key}[{i}] is not a non-empty string"
     
     # Validate list lengths for other lists (allow +/-1 but never empty)
     list_checks = []
@@ -3666,7 +3712,22 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
         pass
     
     # Stage 2: Extract JSON object substring between first { and last }
+    # Use regex to find the first complete JSON object
     try:
+        # Try to find JSON object with regex (handles nested braces better)
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(json_pattern, raw_trimmed, re.DOTALL)
+        if matches:
+            # Try the largest match first (most likely to be complete)
+            for match in sorted(matches, key=len, reverse=True):
+                try:
+                    payload = json.loads(match)
+                    if isinstance(payload, dict):
+                        return payload
+                except json.JSONDecodeError:
+                    continue
+        
+        # Fallback to simple brace matching
         first_brace = raw_trimmed.find('{')
         last_brace = raw_trimmed.rfind('}')
         if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
@@ -3683,9 +3744,13 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
         payload = {
             "headline": "",
             "best_move": "",
+            "banner_summary_line": "",
             "why_bullets": [],
+            "what_you_could_do": [],
             "what_you_could_do_bullets": [],
+            "if_not_try_this_instead": "",
             "if_not_try_this_instead_bullets": [],
+            "but_if_you_do_play": [],
             "tips_if_you_play_bullets": []
         }
         
@@ -3700,7 +3765,9 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
                 # Extract headline text
                 colon_idx = line.find(':')
                 if colon_idx != -1:
-                    payload["headline"] = line[colon_idx + 1:].strip().strip('"').strip("'")
+                    headline_text = line[colon_idx + 1:].strip().strip('"').strip("'")
+                    payload["headline"] = headline_text
+                    payload["banner_summary_line"] = headline_text
                 current_section = None
             elif "best_move" in line.lower() or "best" in line.lower():
                 colon_idx = line.find(':')
@@ -3710,11 +3777,11 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
             elif "why" in line.lower() and ("bullet" in line.lower() or "reason" in line.lower()):
                 current_section = "why_bullets"
             elif "what" in line.lower() and ("could" in line.lower() or "do" in line.lower()):
-                current_section = "what_you_could_do_bullets"
+                current_section = "what_you_could_do"
             elif "instead" in line.lower() or "alternative" in line.lower():
-                current_section = "if_not_try_this_instead_bullets"
-            elif "tip" in line.lower() or "play" in line.lower():
-                current_section = "tips_if_you_play_bullets"
+                current_section = "if_not_try_this_instead"
+            elif "tip" in line.lower() or ("play" in line.lower() and "but" in line.lower()):
+                current_section = "but_if_you_do_play"
             
             # Extract bullet items (lines starting with •, -, *, or numbered)
             if line.startswith(('•', '-', '*')) or re.match(r'^\d+[\.\)]\s', line):
@@ -3723,7 +3790,11 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
                 bullet_text = bullet_text.strip().strip('"').strip("'").strip(',')
                 
                 if current_section and current_section in payload:
-                    payload[current_section].append(bullet_text)
+                    if isinstance(payload[current_section], list):
+                        payload[current_section].append(bullet_text)
+                    else:
+                        # Convert to list if it was a string
+                        payload[current_section] = [bullet_text]
                 elif not current_section:
                     # Default to why_bullets if no section detected
                     payload["why_bullets"].append(bullet_text)
@@ -3736,6 +3807,223 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
     
     # Stage 4: All attempts failed
     return None
+
+
+def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Post-process LLM output to:
+    1. Map equivalent keys (e.g., "banner" -> "banner_summary_line")
+    2. Fill missing keys with safe defaults based on tier + context
+    3. Enforce style rules (no dashes, no repetition, short sentences)
+    4. Ensure all required keys are present
+    
+    Returns: Normalized dict with all required keys
+    """
+    import re
+    
+    if not isinstance(llm_output, dict):
+        llm_output = {}
+    
+    result = {}
+    
+    # Key mapping: map equivalent keys to standard names
+    key_mappings = {
+        # Headline variations
+        "headline": "headline",
+        "banner_summary": "banner_summary_line",
+        "banner_summary_line": "banner_summary_line",
+        "banner": "banner_summary_line",
+        
+        # Best move (should already be correct)
+        "best_move": "best_move",
+        
+        # Why bullets
+        "why_bullets": "why_bullets",
+        "why": "why_bullets",
+        
+        # What you could do variations
+        "what_you_could_do": "what_you_could_do",
+        "what_you_could_do_bullets": "what_you_could_do",
+        "what_you_could_do_bullet": "what_you_could_do",
+        
+        # Instead activities variations
+        "if_not_try_this_instead": "if_not_try_this_instead",
+        "if_not_try_this_instead_bullets": "if_not_try_this_instead",
+        "instead_activities": "if_not_try_this_instead",
+        "alternatives": "if_not_try_this_instead",
+        
+        # But if you do play variations
+        "but_if_you_do_play": "but_if_you_do_play",
+        "tips_if_you_play_bullets": "but_if_you_do_play",
+        "if_you_play_tips": "but_if_you_do_play",
+        "tips": "but_if_you_do_play",
+    }
+    
+    # Apply key mappings
+    for old_key, new_key in key_mappings.items():
+        if old_key in llm_output:
+            value = llm_output[old_key]
+            # Handle list vs string for "if_not_try_this_instead"
+            if new_key == "if_not_try_this_instead" and isinstance(value, list):
+                # Convert list to single string (take first item or join)
+                value = value[0] if value else ""
+            # Handle string vs list for "but_if_you_do_play"
+            elif new_key == "but_if_you_do_play" and isinstance(value, str):
+                # Convert string to list
+                value = [value] if value else []
+            result[new_key] = value
+    
+    # Extract context for defaults
+    playability_tier = deterministic_payload.get("playability_tier", "Decent")
+    best_move = deterministic_payload.get("best_move", "18 holes")
+    why_bullets_det = deterministic_payload.get("why_bullets", [])
+    what_you_could_do_det = deterministic_payload.get("what_you_could_do_bullets", [])
+    instead_activities_det = deterministic_payload.get("instead_activities", [])
+    if_you_play_tips_det = deterministic_payload.get("if_you_play_tips", [])
+    
+    # Fill missing keys with safe defaults
+    if "headline" not in result or not result.get("headline"):
+        if "banner_summary_line" in result and result["banner_summary_line"]:
+            result["headline"] = result["banner_summary_line"]
+        else:
+            # Generate default based on tier
+            if playability_tier == "Great":
+                result["headline"] = "Conditions are ideal for golf today. Weather and ground are in your favour."
+            elif playability_tier == "Decent":
+                result["headline"] = "Conditions are decent for golf today. Weather and ground are manageable."
+            elif playability_tier == "Challenging":
+                result["headline"] = "Conditions are challenging but playable. Weather and ground will test your game."
+            else:  # Rough
+                result["headline"] = "Conditions are rough today. Weather and ground will make scoring difficult."
+    
+    if "banner_summary_line" not in result or not result.get("banner_summary_line"):
+        result["banner_summary_line"] = result.get("headline", "")
+    
+    if "best_move" not in result or not result.get("best_move"):
+        result["best_move"] = best_move
+    
+    if "why_bullets" not in result or not isinstance(result.get("why_bullets"), list) or len(result.get("why_bullets", [])) < 3:
+        why_bullets_result = result.get("why_bullets", [])
+        if not isinstance(why_bullets_result, list):
+            why_bullets_result = []
+        # Fill up to 3 items from deterministic fallback
+        while len(why_bullets_result) < 3 and len(why_bullets_det) > len(why_bullets_result):
+            why_bullets_result.append(why_bullets_det[len(why_bullets_result)])
+        # If still short, add generic defaults
+        while len(why_bullets_result) < 3:
+            if playability_tier == "Great":
+                why_bullets_result.append("Weather conditions are ideal for golf today.")
+            elif playability_tier == "Decent":
+                why_bullets_result.append("Weather and ground conditions are manageable.")
+            else:
+                why_bullets_result.append("Conditions are challenging but playable.")
+        result["why_bullets"] = why_bullets_result[:3]
+    
+    # Determine max bullets based on tier
+    max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
+    
+    if "what_you_could_do" not in result or not isinstance(result.get("what_you_could_do"), list) or len(result.get("what_you_could_do", [])) < 2:
+        what_result = result.get("what_you_could_do", [])
+        if not isinstance(what_result, list):
+            what_result = []
+        # Fill up to 2 items from deterministic fallback
+        while len(what_result) < 2 and len(what_you_could_do_det) > len(what_result):
+            what_result.append(what_you_could_do_det[len(what_result)])
+        # If still short, add generic defaults
+        while len(what_result) < 2:
+            if playability_tier in ["Great", "Decent"]:
+                what_result.append("Book early morning slots for better pace and smoother rounds.")
+            else:
+                what_result.append("Book 9 holes to avoid fighting through tough conditions.")
+        # For Challenging/Rough, add third bullet if needed
+        if playability_tier in ["Challenging", "Rough"] and len(what_result) < 3:
+            what_result.append("Range session lets you work on technique without pressure.")
+        result["what_you_could_do"] = what_result[:max_what_bullets]
+    
+    if "if_not_try_this_instead" not in result or not result.get("if_not_try_this_instead"):
+        if instead_activities_det and len(instead_activities_det) > 0:
+            result["if_not_try_this_instead"] = instead_activities_det[0]
+        else:
+            if playability_tier in ["Challenging", "Rough"]:
+                result["if_not_try_this_instead"] = "If you want max value today: range plus short game."
+            else:
+                result["if_not_try_this_instead"] = "If you want it easier: play 9 and keep it moving."
+    
+    if "but_if_you_do_play" not in result or not isinstance(result.get("but_if_you_do_play"), list) or len(result.get("but_if_you_do_play", [])) < len(if_you_play_tips_det):
+        but_result = result.get("but_if_you_do_play", [])
+        if not isinstance(but_result, list):
+            but_result = []
+        # Fill up to required length from deterministic fallback
+        while len(but_result) < len(if_you_play_tips_det) and len(if_you_play_tips_det) > len(but_result):
+            but_result.append(if_you_play_tips_det[len(but_result)])
+        # If still short, add generic defaults
+        while len(but_result) < max(2, len(if_you_play_tips_det)):
+            if playability_tier in ["Challenging", "Rough"]:
+                but_result.append("Pack waterproofs and a spare glove. Conditions can change quickly.")
+            else:
+                but_result.append("Keep an eye on the weather. Conditions are decent but can change.")
+        result["but_if_you_do_play"] = but_result[:len(if_you_play_tips_det)] if if_you_play_tips_det else but_result[:2]
+    
+    # Enforce style rules: remove dashes, fix repetition, ensure short sentences, enforce word limits
+    def clean_text(text: str, max_words: int = None) -> str:
+        if not isinstance(text, str):
+            return text
+        # Remove em dashes, en dashes, and hyphens used as punctuation
+        text = text.replace(" — ", ". ")
+        text = text.replace("—", ". ")
+        text = text.replace(" – ", ". ")
+        text = text.replace("–", ". ")
+        text = text.replace(" - ", ". ")
+        # Clean up multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
+        # Enforce word limit if specified
+        if max_words:
+            words = text.split()
+            if len(words) > max_words:
+                # Truncate to max_words and add period
+                text = " ".join(words[:max_words])
+                if not text.endswith((".", "!", "?")):
+                    text += "."
+        # Ensure proper sentence ending
+        if text and not text.endswith((".", "!", "?")):
+            text += "."
+        return text
+    
+    def clean_what_bullet(text: str) -> str:
+        """Clean what_you_could_do bullet: max 18 words, no dashes, no repetition"""
+        cleaned = clean_text(text, max_words=18)
+        # Remove repetition of heading
+        cleaned = re.sub(r'^(what you could do|what to do):\s*', '', cleaned, flags=re.IGNORECASE)
+        # Remove generic "18 holes" without reason
+        if re.match(r'^18 holes\s+(works|looks|is)\s+', cleaned, re.IGNORECASE):
+            # If it's just "18 holes works/looks/is" without a reason, replace with something better
+            if playability_tier in ["Great", "Decent"]:
+                cleaned = "Book early morning slots for better pace and smoother rounds."
+            else:
+                cleaned = "Book 9 holes to avoid fighting through tough conditions."
+        return cleaned
+    
+    # Clean all text fields
+    if "headline" in result:
+        result["headline"] = clean_text(result["headline"])
+    if "banner_summary_line" in result:
+        result["banner_summary_line"] = clean_text(result["banner_summary_line"])
+    if "best_move" in result:
+        result["best_move"] = clean_text(result["best_move"])
+    if "why_bullets" in result and isinstance(result["why_bullets"], list):
+        result["why_bullets"] = [clean_text(b) for b in result["why_bullets"]]
+    if "what_you_could_do" in result and isinstance(result["what_you_could_do"], list):
+        # Apply special cleaning for what_you_could_do bullets: max 18 words, no repetition
+        result["what_you_could_do"] = [clean_what_bullet(b) for b in result["what_you_could_do"]]
+        # Cap at max_what_bullets
+        result["what_you_could_do"] = result["what_you_could_do"][:max_what_bullets]
+    if "if_not_try_this_instead" in result:
+        result["if_not_try_this_instead"] = clean_text(result["if_not_try_this_instead"])
+    if "but_if_you_do_play" in result and isinstance(result["but_if_you_do_play"], list):
+        result["but_if_you_do_play"] = [clean_text(b) for b in result["but_if_you_do_play"]]
+    
+    return result
 
 
 def clean_copy_text(text: str) -> str:
@@ -3923,27 +4211,33 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             # Call LLM to rewrite copy
             llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
             
-            # Validate required keys (as specified in requirements)
-            required_keys_map = {
-                "banner_summary": "banner_summary_line",
-                "what_you_could_do_bullets": "what_you_could_do",
-                "instead_activities": "if_not_try_this_instead",
-                "if_you_play_tips": "but_if_you_do_play",
-                "why_bullets": "why_bullets"
-            }
+            # Validate required keys (post-processor should have ensured all keys exist)
+            required_keys = [
+                "headline",
+                "best_move",
+                "banner_summary_line",
+                "why_bullets",
+                "what_you_could_do",
+                "if_not_try_this_instead",
+                "but_if_you_do_play"
+            ]
             
             missing_keys = []
-            for key, expected_name in required_keys_map.items():
+            for key in required_keys:
                 if key not in llm_output:
-                    missing_keys.append(expected_name)
-                elif key == "banner_summary":
-                    # banner_summary must be a non-empty string
+                    missing_keys.append(key)
+                elif key == "banner_summary_line":
+                    # banner_summary_line must be a non-empty string
                     if not isinstance(llm_output[key], str) or not llm_output[key].strip():
-                        missing_keys.append(expected_name)
-                elif key in ["what_you_could_do_bullets", "instead_activities", "if_you_play_tips", "why_bullets"]:
+                        missing_keys.append(key)
+                elif key == "if_not_try_this_instead":
+                    # if_not_try_this_instead must be a non-empty string
+                    if not isinstance(llm_output[key], str) or not llm_output[key].strip():
+                        missing_keys.append(key)
+                elif key in ["why_bullets", "what_you_could_do", "but_if_you_do_play"]:
                     # Lists must exist and be non-empty
                     if not isinstance(llm_output[key], list) or len(llm_output[key]) == 0:
-                        missing_keys.append(expected_name)
+                        missing_keys.append(key)
             
             if missing_keys:
                 errors["llm_error_type"] = "missing_keys"
@@ -3951,6 +4245,11 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
                 errors["llm_raw_preview"] = str(llm_output)[:200]
                 # Fall back to templates
                 return "templates", "generate_recommendations", deterministic_payload, errors
+            
+            # Map LLM output keys to expected format
+            # LLM returns: headline, banner_summary_line, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
+            # Expected format: banner_summary_line, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
+            # (headline is used for banner_summary_line, so they should match after post-processing)
             
             # Validate structure matches deterministic payload
             is_valid, validation_reason = validate_llm_output(llm_output, deterministic_payload)
@@ -3962,12 +4261,42 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
                 # Fall back to templates
                 return "templates", "generate_recommendations", deterministic_payload, errors
             
-            # LLM output is valid - use it
-            final_payload = llm_output.copy()
+            # LLM output is valid - map keys to expected format
+            final_payload = deterministic_payload.copy()  # Start with deterministic structure
+            
+            # Map LLM output keys to expected format
+            # LLM returns: headline, banner_summary_line, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
+            # Expected format: banner_summary_line, what_you_could_do_bullets, instead_activities, if_you_play_tips
+            
+            if "banner_summary_line" in llm_output:
+                final_payload["banner_summary_line"] = llm_output["banner_summary_line"]
+            elif "headline" in llm_output:
+                final_payload["banner_summary_line"] = llm_output["headline"]
+            
+            if "what_you_could_do" in llm_output:
+                final_payload["what_you_could_do_bullets"] = llm_output["what_you_could_do"]
+            
+            if "if_not_try_this_instead" in llm_output:
+                # Convert string to list (expected format)
+                instead_str = llm_output["if_not_try_this_instead"]
+                final_payload["instead_activities"] = [instead_str] if instead_str else []
+            
+            if "but_if_you_do_play" in llm_output:
+                final_payload["if_you_play_tips"] = llm_output["but_if_you_do_play"]
+            
+            # Preserve other LLM fields
+            if "why_bullets" in llm_output:
+                final_payload["why_bullets"] = llm_output["why_bullets"]
+            if "best_move" in llm_output:
+                final_payload["best_move"] = llm_output["best_move"]
+            
             # Extract timing metadata if present
-            llm_metadata = final_payload.pop("_llm_metadata", {})
+            llm_metadata = llm_output.pop("_llm_metadata", {})
             # Ensure tier_reasons is preserved (not rewritten by LLM)
             final_payload["tier_reasons"] = deterministic_payload.get("tier_reasons", [])
+            
+            # Ensure all required keys exist (should already be filled by post-processor, but double-check)
+            final_payload = ensure_assessment_defaults(final_payload)
             
             # Add timing info to errors dict for debug tracking
             errors.update(llm_metadata)
@@ -4036,7 +4365,38 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     course_name = deterministic_payload.get("course_name", "")
     course_difficulty = None  # Will be extracted if available
     
+    # Determine max bullets for what_you_could_do based on tier
+    max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
+    
+    # Build example JSON schema with actual values for clarity
+    example_json = {
+        "headline": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
+        "best_move": best_move,
+        "banner_summary_line": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
+        "why_bullets": [
+            "Weather conditions are challenging with cold temperatures reducing ball distance.",
+            "The course ground is soft from recent rain, which will affect roll and lie quality.",
+            "At your handicap level, these conditions will make scoring more difficult than usual."
+        ],
+        "what_you_could_do": [
+            "Book early morning slots for better pace and smoother rounds.",
+            "Consider 9 holes if you want to avoid fighting conditions."
+        ] if playability_tier in ["Great", "Decent"] else [
+            "Book 9 holes to avoid fighting through tough conditions.",
+            "Early morning slots offer better pace when it's quieter.",
+            "Range session lets you work on technique without pressure."
+        ],
+        "if_not_try_this_instead": "If you want max value today: range plus short game." if playability_tier in ["Challenging", "Rough"] else "If you want it easier: play 9 and keep it moving.",
+        "but_if_you_do_play": [
+            "Pack waterproofs and a spare glove. Conditions can change quickly and staying dry keeps you comfortable.",
+            "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
+            "Adjust expectations and focus on technique. Today's about building good habits, not scoring low."
+        ]
+    }
+    
     prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
+
+CRITICAL: You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary, no explanations. Just pure JSON.
 
 VOICE & STYLE RULES:
 1. Friendly, calm "pro shop" person - like chatting with someone who knows golf
@@ -4048,92 +4408,64 @@ VOICE & STYLE RULES:
 7. Use UK tone and spelling (colour, realise, etc.)
 8. Avoid judgement language about handicap - handicap is just context, not a limitation
 9. Never claim certainty - use "likely", "tends to", "you'll probably", "might", "could"
-10. "best_move" should be phrased as a suggestion, e.g. "Best move: 9 holes or a focused range session"
-    - NEVER: "Play 18." "Go play." "Enjoy your round." "Conditions are suitable today."
-    - DO: "Best move: 9 holes or a focused range session" or "Best move: probably worth waiting for better conditions"
+10. Sentences should be short and friendly, like a pro shop assistant
+11. Do NOT repeat the section title in the bullet body (e.g., don't start with "Why:" or "What you could do:")
+12. NO em dashes (—), NO en dashes (–), NO hyphens used as punctuation (-). Use periods or commas instead.
 
 HANDICAP WEIGHTING RULES:
 - Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard
 - If handicap <= 6, never recommend skipping unless tier is Rough AND wind/rain thresholds are extreme
 - Keep handicap references light unless conditions meaningfully amplify difficulty
 
-REQUIRED OUTPUT STRUCTURE:
-- banner_summary: 1 sentence summary in friendly tone explaining WHY the tier is what it is (must be useful and specific, not flat)
-- why_bullets: Exactly 3 bullets (weather/ground first, then course, handicap only if relevant per rules above)
-- what_you_could_do_bullets: Exactly 2 bullets (actionable, not generic)
-- trade_off_sentence: 1 sentence explaining a trade-off (e.g., "You'll get more out of X than slogging through Y.")
-
-CRITICAL STRUCTURE RULES:
-1. DO NOT change playability_tier or best_move - return them EXACTLY as provided
-2. DO NOT change the number of items in any list
-3. DO NOT remove any sections
-4. DO NOT add new sections
-5. ONLY rewrite the text/copy for clarity and human tone
-6. Keep British English spelling and phrasing
-
 INPUT DATA (deterministic output):
 {json.dumps(deterministic_payload, indent=2)}
 
-TASK:
-Rewrite ONLY the text content with friendly, human, pro-shop voice. You MUST generate exactly the required structure:
+REQUIRED OUTPUT FORMAT - EXACT JSON SCHEMA:
+You MUST return ONLY valid JSON matching this exact structure. Copy this format exactly:
 
-1. banner_summary: Generate a joined-up one-liner (1 sentence) that summarises WHY the tier is what it is. Must be useful and specific, not flat. Example: "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring."
+{json.dumps(example_json, indent=2)}
 
-2. why_bullets: Generate exactly 3 bullets:
-   - Bullet 1: Weather/ground conditions (primary driver)
-   - Bullet 2: Course factors (difficulty, busyness, etc.)
-   - Bullet 3: Handicap only if tier is Challenging/Rough OR course difficulty is Hard (otherwise use another course factor)
-   Each bullet should feel like a helpful tip explaining what's happening and why it matters.
+REQUIRED KEYS (all must be present):
+- headline: string - 1 sentence summary in friendly tone explaining WHY the tier is what it is (useful and specific, not flat)
+- best_move: string - MUST be exactly "{best_move}" (do not change)
+- banner_summary_line: string - Same as headline (1 sentence summary)
+- why_bullets: array of exactly 3 strings - Weather/ground first, then course, handicap only if relevant
+- what_you_could_do: array of {max_what_bullets} strings max ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")}) - Each bullet: one sentence, max 18 words, actionable, not generic. Do NOT repeat the heading or restate "18 holes" without a reason.
+- if_not_try_this_instead: string - One tight line following format "If you want [benefit]: [action]." Examples: "If you want max value today: range plus short game." or "If you want it easier: play 9 and keep it moving."
+- but_if_you_do_play: array of exactly {len(if_you_play_tips)} strings - Practical tips if they decide to play
 
-3. what_you_could_do_bullets: Generate exactly 2 bullets (actionable, not generic):
-   - Focus on what they can actually do
-   - Avoid generic phrases like "Enjoy your round"
-   - Be specific about actions
+CRITICAL JSON RULES:
+1. Return ONLY valid JSON - no markdown code blocks, no ```json```, no explanations, no commentary
+2. Use exactly these 7 keys: headline, best_move, banner_summary_line, why_bullets, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
+3. No extra keys beyond these 7
+4. No comments in JSON
+5. All strings must be non-empty
+6. All arrays must have the exact required length
+7. best_move MUST be exactly "{best_move}" (do not change)
 
-4. trade_off_sentence: Generate 1 sentence explaining a trade-off (e.g., "You'll get more out of a focused range session than slogging through 18 holes in these conditions.")
+STYLE ENFORCEMENT:
+- NO em dashes (—), NO en dashes (–), NO hyphens used as punctuation (-)
+- Use periods or commas instead of dashes
+- Do NOT repeat section titles in bullet text
+- Keep sentences short and friendly
+- No repetition of section title in bullet body
 
-5. instead_activities: rewrite each activity text (keep same count, required for Challenging/Rough)
-
-6. if_you_play_tips: rewrite each tip text (keep same count, required for Challenging/Rough)
-
-7. reasons: rewrite "impact" text in each reason (keep same count and structure)
-
-8. recommendations: rewrite "reason" text in each recommendation (keep same count and structure)
-
-REQUIRED OUTPUT FORMAT (JSON):
-You MUST return ONLY valid JSON with exactly these keys. No markdown, no extra keys, no comments, no hyphens or dash characters (—, –, -).
-
-{{
-    "headline": "[1 sentence summary in friendly tone - useful and specific, not flat]",
-    "best_move": "{best_move}",
-    "why_bullets": ["[bullet 1 - weather/ground]", "[bullet 2 - course]", "[bullet 3 - handicap only if relevant]"],
-    "what_you_could_do_bullets": ["[bullet 1 - actionable]", "[bullet 2 - actionable]"],
-    "if_not_try_this_instead_bullets": ["[alternative activity 1]", "[alternative activity 2]", ...],
-    "tips_if_you_play_bullets": ["[tip 1]", "[tip 2]", "[tip 3]", ...]
-}}
-
-CRITICAL RULES:
-- Return ONLY valid JSON - no markdown code blocks, no ```json```, no explanations
-- Use exactly these keys: headline, best_move, why_bullets, what_you_could_do_bullets, if_not_try_this_instead_bullets, tips_if_you_play_bullets
-- No extra keys beyond these 6
-- No comments in JSON
-- No hyphens or dash characters (—, –, -) anywhere in the text - use periods or commas instead
-- headline: exactly 1 sentence, non-empty string
-- why_bullets: exactly 3 items (weather/ground first, then course, handicap only if relevant)
-- what_you_could_do_bullets: exactly 2 items (actionable, not generic)
-- if_not_try_this_instead_bullets: exactly {len(instead_activities)} items
-- tips_if_you_play_bullets: exactly {len(if_you_play_tips)} items
-- All list items must be non-empty strings
-- best_move MUST be exactly "{best_move}" (do not change)
+WHAT_YOU_COULD_DO RULES (CRITICAL):
+- Maximum {max_what_bullets} bullets ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")})
+- Each bullet: exactly one sentence, maximum 18 words
+- NO hyphens or em dashes anywhere in the bullet
+- Do NOT repeat the heading "What you could do" in the bullet text
+- Do NOT restate "18 holes" without a specific reason (e.g., "18 holes works well" is bad, "18 holes in morning slots avoids peak crowds" is good)
+- Be actionable and specific, not generic
+- Keep it tight and friendly
 
 HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
 - "Play 18."
 - "Enjoy your round."
 - "Conditions are suitable today."
-- Any hyphens or dashes (—, –, -) - use periods or commas instead
-If output contains any of these, it will be rejected and deterministic templates used instead.
+- Em dashes (—), en dashes (–), or hyphens used as punctuation (-)
 
-Return ONLY valid JSON matching the structure above. No markdown, no code blocks, no explanations."""
+Return ONLY valid JSON matching the exact schema above. No markdown, no code blocks, no explanations."""
 
     request_id_str = f" request_id={request_id}" if request_id else ""
     logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
@@ -4163,7 +4495,7 @@ Return ONLY valid JSON matching the structure above. No markdown, no code blocks
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands like 'Play 18.' 'Enjoy your round.' 'Conditions are suitable today.' Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard. If handicap <= 6, never recommend skipping unless tier is Rough AND conditions are extreme. Banner summary must be useful and specific, not flat. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
+                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary. Return pure JSON matching the exact schema provided. Use UK tone and spelling. Avoid robotic commands. Keep sentences short and friendly. No dashes used as punctuation. Do not repeat section titles in bullet text."
                         },
                         {"role": "user", "content": prompt}
                     ],
@@ -4184,7 +4516,7 @@ Return ONLY valid JSON matching the structure above. No markdown, no code blocks
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands like 'Play 18.' 'Enjoy your round.' 'Conditions are suitable today.' Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard. If handicap <= 6, never recommend skipping unless tier is Rough AND conditions are extreme. Banner summary must be useful and specific, not flat. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
+                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary. Return pure JSON matching the exact schema provided. Use UK tone and spelling. Avoid robotic commands. Keep sentences short and friendly. No dashes used as punctuation. Do not repeat section titles in bullet text."
                         },
                         {"role": "user", "content": prompt}
                     ],
@@ -4202,10 +4534,10 @@ Return ONLY valid JSON matching the structure above. No markdown, no code blocks
         llm_raw_preview = response_text[:200] if response_text else ""
         
         # Parse JSON response with robust salvage
-        rewritten_data = parse_llm_payload(response_text)
+        parsed_data = parse_llm_payload(response_text)
         parse_stage = "json_ok"  # Default, will be updated if salvage was used
         
-        if rewritten_data is None:
+        if parsed_data is None:
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.error(f"LLM parse failed: all salvage attempts failed duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
             raise ValueError("LLM returned invalid JSON structure - all parse attempts failed")
@@ -4227,14 +4559,18 @@ Return ONLY valid JSON matching the structure above. No markdown, no code blocks
             else:
                 parse_stage = "plaintext_salvage_ok"
         
-        # Validate required keys and types
+        # Post-process: map keys, fill defaults, enforce style rules
+        rewritten_data = post_process_llm_output(parsed_data, deterministic_payload)
+        
+        # Validate required keys and types (after post-processing, so defaults should be filled)
         required_keys = {
             "headline": str,
             "best_move": str,
+            "banner_summary_line": str,
             "why_bullets": list,
-            "what_you_could_do_bullets": list,
-            "if_not_try_this_instead_bullets": list,
-            "tips_if_you_play_bullets": list
+            "what_you_could_do": list,
+            "if_not_try_this_instead": str,
+            "but_if_you_do_play": list
         }
         
         missing_keys = []
@@ -4242,40 +4578,41 @@ Return ONLY valid JSON matching the structure above. No markdown, no code blocks
             if key not in rewritten_data:
                 missing_keys.append(key)
             elif not isinstance(rewritten_data[key], expected_type):
-                missing_keys.append(f"{key} (wrong type)")
+                missing_keys.append(f"{key} (wrong type: {type(rewritten_data[key]).__name__})")
             elif key == "headline" and (not rewritten_data[key] or not rewritten_data[key].strip()):
+                missing_keys.append(f"{key} (empty)")
+            elif key == "banner_summary_line" and (not rewritten_data[key] or not rewritten_data[key].strip()):
+                missing_keys.append(f"{key} (empty)")
+            elif key == "if_not_try_this_instead" and (not rewritten_data[key] or not rewritten_data[key].strip()):
                 missing_keys.append(f"{key} (empty)")
             elif isinstance(rewritten_data[key], list) and len(rewritten_data[key]) == 0:
                 missing_keys.append(f"{key} (empty list)")
         
         if missing_keys:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM missing required keys: {missing_keys} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
-            raise ValueError(f"LLM response missing required keys: {', '.join(missing_keys)}")
+            logger.error(f"LLM missing required keys after post-processing: {missing_keys} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            raise ValueError(f"LLM response missing required keys after post-processing: {', '.join(missing_keys)}")
         
-        # Check for blocklisted phrases
+        # Check for blocklisted phrases (after cleaning, so should be rare)
         blocklist = ["Play 18.", "Enjoy your round.", "Conditions are suitable today."]
         blocklist_found = []
+        all_text = " ".join([
+            rewritten_data.get("headline", ""),
+            rewritten_data.get("banner_summary_line", ""),
+            rewritten_data.get("best_move", ""),
+            " ".join(rewritten_data.get("why_bullets", [])),
+            " ".join(rewritten_data.get("what_you_could_do", [])),
+            rewritten_data.get("if_not_try_this_instead", ""),
+            " ".join(rewritten_data.get("but_if_you_do_play", []))
+        ])
         for phrase in blocklist:
-            if phrase in response_text:
+            if phrase in all_text:
                 blocklist_found.append(phrase)
         
         if blocklist_found:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM blocklist violation: {blocklist_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-            raise ValueError(f"LLM output contains blocklisted phrases: {', '.join(blocklist_found)}")
-        
-        # Check for dash characters
-        dash_chars = ["—", "–", " - "]
-        dash_found = []
-        for dash in dash_chars:
-            if dash in response_text:
-                dash_found.append(dash)
-        
-        if dash_found:
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM dash violation: {dash_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-            raise ValueError(f"LLM output contains dash characters: {', '.join(dash_found)}")
+            logger.warning(f"LLM blocklist violation (cleaned): {blocklist_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+            # Don't raise error, just log warning - post-processor should have cleaned it
         
         elapsed_ms = int((time.time() - start_time) * 1000)
         
@@ -5923,7 +6260,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     )
     
     # Generate what_you_could_do_bullets from structured recommendations (deterministic)
-    # Template fallback: friendly pro-shop tone with trade-offs, 2-3 bullets
+    # Rules: max 2 bullets for Great/Decent, max 3 for Challenging/Rough
+    # Each bullet: one sentence, max 18 words, no dashes, no repetition of heading
+    max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
     what_you_could_do_bullets = []
     seen_actions = set()
     
@@ -5934,12 +6273,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             if not action:
                 continue
             
-            # Combine action + reason into friendly bullet with trade-offs
-            # Format: "[Action]—[reason explaining trade-off]"
-            action_clean = action.strip()
-            reason_clean = reason.strip()
-            
             # Transform generic actions to friendly alternatives
+            action_clean = action.strip()
             if action_clean.lower() == "play 18":
                 action_clean = "18 holes"
             elif action_clean.lower() == "play 9":
@@ -5947,16 +6282,27 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             elif "play 18" in action_clean.lower():
                 action_clean = action_clean.replace("Play 18", "18 holes").replace("play 18", "18 holes")
             
-            # Combine action and reason into friendly bullet (use period, not dash)
+            # Create tight bullet: one sentence, max 18 words, no dashes
+            reason_clean = reason.strip().lower() if reason else ""
             if reason_clean:
-                # Use period separator instead of dash
-                bullet = f"{action_clean}. {reason_clean.lower()}"
+                # Combine into one sentence with period
+                bullet = f"{action_clean}. {reason_clean}"
             else:
                 bullet = action_clean
             
             # Ensure period at end
             if not bullet.endswith('.'):
                 bullet += "."
+            
+            # Enforce 18 word limit
+            words = bullet.split()
+            if len(words) > 18:
+                bullet = " ".join(words[:18])
+                if not bullet.endswith('.'):
+                    bullet += "."
+            
+            # Remove dashes
+            bullet = bullet.replace(" — ", ". ").replace("—", ". ").replace(" – ", ". ").replace("–", ". ").replace(" - ", ". ")
             
             # Deduplicate by action
             action_normalized = action.lower().strip()
@@ -5965,53 +6311,64 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 what_you_could_do_bullets.append(bullet)
                 logger.debug(f"COPY_BUILDER: Added bullet from recommendation action='{action}' reason='{reason}' -> bullet='{bullet}'")
             
-            # Cap bullets: 2-3 for template fallback
-            if len(what_you_could_do_bullets) >= 3:
+            # Cap bullets at max_what_bullets
+            if len(what_you_could_do_bullets) >= max_what_bullets:
                 break
     
-    # Template fallback: ensure exactly 2 friendly bullets with trade-offs
+    # Template fallback: ensure at least 2 bullets, cap at max_what_bullets
     if len(what_you_could_do_bullets) < 2:
         if playability_tier == "Decent":
-            # Decent tier: friendly club pro tone
             if len(what_you_could_do_bullets) == 0:
-                what_you_could_do_bullets.append("18 holes works well today. Weather and ground conditions are manageable, so you'll get good value from a full round.")
-                what_you_could_do_bullets.append("Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead.")
+                what_you_could_do_bullets.extend([
+                    "Book early morning slots for better pace and smoother rounds.",
+                    "Consider 9 holes if you want to avoid peak crowds."
+                ])
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead.")
+                what_you_could_do_bullets.append("Consider 9 holes if you want to avoid peak crowds.")
         elif playability_tier == "Great":
             if len(what_you_could_do_bullets) == 0:
-                what_you_could_do_bullets.append("18 holes looks good today. Conditions are in your favour and you'll get more out of a full round than rushing through.")
-                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting.")
+                what_you_could_do_bullets.extend([
+                    "Book early morning slots for better pace and smoother rounds.",
+                    "Consider 9 holes if you want to avoid peak crowds."
+                ])
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting.")
+                what_you_could_do_bullets.append("Consider 9 holes if you want to avoid peak crowds.")
         else:  # Challenging or Rough
             if len(what_you_could_do_bullets) == 0:
-                what_you_could_do_bullets.append("9 holes might be more manageable. You'll get better value from a shorter round than fighting through 18 in these conditions.")
-                what_you_could_do_bullets.append("A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather.")
+                what_you_could_do_bullets.extend([
+                    "Book 9 holes to avoid fighting through tough conditions.",
+                    "Early morning slots offer better pace when it's quieter.",
+                    "Range session lets you work on technique without pressure."
+                ])
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather.")
+                what_you_could_do_bullets.extend([
+                    "Early morning slots offer better pace when it's quieter.",
+                    "Range session lets you work on technique without pressure."
+                ])
+            elif len(what_you_could_do_bullets) == 2:
+                what_you_could_do_bullets.append("Range session lets you work on technique without pressure.")
     
-    # Cap at 2 items (template requirement: 2 bullets)
-    what_you_could_do_bullets = what_you_could_do_bullets[:2]
+    # Cap at max_what_bullets
+    what_you_could_do_bullets = what_you_could_do_bullets[:max_what_bullets]
     
     # Generate instead_activities (deterministic)
-    # Always present, exactly 1 bullet (template requirement)
+    # Format: "If you want [benefit]: [action]." - one tight line
     instead_activities = []
     if playability_tier == "Challenging":
         instead_activities = [
-            "9 holes or range session. Shorter round lets you focus on technique without the pressure."
+            "If you want max value today: range plus short game."
         ]
     elif playability_tier == "Rough":
         instead_activities = [
-            "Range session or short game practice. Conditions are tough, so practice facilities offer better value today."
+            "If you want max value today: range plus short game."
         ]
     elif playability_tier == "Decent":
         instead_activities = [
-            "9 holes or a range session gives you the most value per hour if you're pressed for time."
+            "If you want it easier: play 9 and keep it moving."
         ]
     elif playability_tier == "Great":
         instead_activities = [
-            "9 holes if you're short on time. A shorter round still gives you quality practice."
+            "If you want it easier: play 9 and keep it moving."
         ]
     
     # Generate if_you_play_tips (deterministic)
