@@ -23,6 +23,7 @@ import os
 import asyncio
 import logging
 import subprocess
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, Form, Query, Request, HTTPException, Depends
@@ -4089,8 +4090,11 @@ def clean_copy_text(text: str) -> str:
     - Remove repetition patterns (e.g., "18 holes. Full round..." -> keep only one)
     - Enforce max 140 characters per bullet, split into two sentences if needed
     """
-    if not text or not isinstance(text, str):
-        return text
+    # Safety guard: handle None input and ensure always returns a string
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        return str(text) if text else ""
     
     # Replace em dashes, en dashes, and hyphens used as separators
     # Always replace "—" (em dash) with ". " - handle both with and without spaces
