@@ -3632,6 +3632,95 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
     return " ".join(parts)
 
 
+async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[str, Any], request_id: str = None) -> Tuple[str, str, Dict[str, Any], Dict[str, Any]]:
+    """
+    Single function to build final copy. Prioritizes LLM if llm_effective=True.
+    
+    Args:
+        context: Dict with llm_effective (bool), openai_client, course_name, handicap, etc.
+        deterministic_payload: Base deterministic payload to use as fallback
+        request_id: Optional request ID for logging
+    
+    Returns:
+        (copy_source, copy_builder_fn, copy_payload, errors)
+        - copy_source: "llm" | "templates" | "unknown"
+        - copy_builder_fn: Function name that produced the copy
+        - copy_payload: Final copy payload with all required keys
+        - errors: Dict with llm_error_type, llm_error_message, llm_raw_preview (if LLM failed)
+    """
+    llm_effective = context.get("llm_effective", False)
+    openai_client = context.get("openai_client")
+    errors = {}
+    
+    # If LLM is effective, attempt LLM generation
+    if llm_effective and openai_client:
+        try:
+            # Add context for LLM
+            deterministic_payload_with_context = deterministic_payload.copy()
+            deterministic_payload_with_context["course_name"] = context.get("course_name", "")
+            deterministic_payload_with_context["handicap"] = context.get("handicap")
+            
+            # Call LLM to rewrite copy
+            llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
+            
+            # Validate required keys (as specified in requirements)
+            required_keys_map = {
+                "banner_summary": "banner_summary_line",
+                "what_you_could_do_bullets": "what_you_could_do",
+                "instead_activities": "if_not_try_this_instead",
+                "if_you_play_tips": "but_if_you_do_play",
+                "why_bullets": "why_bullets"
+            }
+            
+            missing_keys = []
+            for key, expected_name in required_keys_map.items():
+                if key not in llm_output:
+                    missing_keys.append(expected_name)
+                elif key == "banner_summary":
+                    # banner_summary must be a non-empty string
+                    if not isinstance(llm_output[key], str) or not llm_output[key].strip():
+                        missing_keys.append(expected_name)
+                elif key in ["what_you_could_do_bullets", "instead_activities", "if_you_play_tips", "why_bullets"]:
+                    # Lists must exist and be non-empty
+                    if not isinstance(llm_output[key], list) or len(llm_output[key]) == 0:
+                        missing_keys.append(expected_name)
+            
+            if missing_keys:
+                errors["llm_error_type"] = "missing_keys"
+                errors["llm_error_message"] = f"Missing or empty required keys: {', '.join(missing_keys)}"
+                errors["llm_raw_preview"] = str(llm_output)[:200]
+                # Fall back to templates
+                return "templates", "generate_recommendations", deterministic_payload, errors
+            
+            # Validate structure matches deterministic payload
+            is_valid, validation_reason = validate_llm_output(llm_output, deterministic_payload)
+            
+            if not is_valid:
+                errors["llm_error_type"] = "validation_failed"
+                errors["llm_error_message"] = validation_reason
+                errors["llm_raw_preview"] = str(llm_output)[:200]
+                # Fall back to templates
+                return "templates", "generate_recommendations", deterministic_payload, errors
+            
+            # LLM output is valid - use it
+            final_payload = llm_output.copy()
+            # Ensure tier_reasons is preserved (not rewritten by LLM)
+            final_payload["tier_reasons"] = deterministic_payload.get("tier_reasons", [])
+            
+            return "llm", "generate_llm_copy", final_payload, {}
+            
+        except Exception as e:
+            # Capture exception details
+            errors["llm_error_type"] = type(e).__name__
+            errors["llm_error_message"] = str(e)
+            errors["llm_raw_preview"] = ""
+            # Fall back to templates
+            return "templates", "generate_recommendations", deterministic_payload, errors
+    
+    # LLM not effective or not available - use templates
+    return "templates", "generate_recommendations", deterministic_payload, {}
+
+
 async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], request_id: str = None) -> Dict[str, Any]:
     """
     Rewrite assessment copy using LLM for clarity. LLM can ONLY rewrite text, not structure.
@@ -5563,40 +5652,44 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     }
     llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
     
-    if openai_client:
-        try:
-            # Add context for LLM
-            deterministic_payload_with_context = deterministic_payload.copy()
-            deterministic_payload_with_context["course_name"] = course
-            deterministic_payload_with_context["handicap"] = handicap
-            
-            # Call LLM to rewrite copy only
-            llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
-            
-            # Strictly validate LLM output
-            is_valid, validation_reason = validate_llm_output(llm_output, deterministic_payload)
-            
-            if is_valid:
-                # Use LLM output (it has rewritten copy but same structure)
-                final_payload = llm_output
-                # Ensure tier_reasons is preserved (not rewritten by LLM)
-                final_payload["tier_reasons"] = deterministic_payload["tier_reasons"]
-                llm_rewrite_succeeded = True
-                copy_debug["copy_source"] = "llm"
-                copy_debug["copy_builder_fn"] = "llm_rewrite_assessment_copy"
-                logger.info(f"LLM_OK: request_id={request_id}")
-            else:
-                # Discard LLM output, use deterministic
-                copy_debug["copy_source"] = "templates"
-                copy_debug["copy_builder_fn"] = "generate_recommendations"
-                logger.warning(f"LLM_DISCARDED: request_id={request_id} reason={validation_reason}")
-                
-        except Exception as e:
-            # Fallback gracefully to deterministic on any error (don't leak secrets)
-            copy_debug["copy_source"] = "templates"
-            copy_debug["copy_builder_fn"] = "generate_recommendations"
-            logger.error(f"LLM_FAIL: request_id={request_id} reason={str(e)}")
-            # final_payload remains as deterministic_payload
+    # Build context for copy generation
+    copy_context = {
+        "llm_effective": llm_effective_enabled,
+        "openai_client": openai_client,
+        "course_name": course,
+        "handicap": handicap
+    }
+    
+    # Single function call to build final copy
+    copy_source, copy_builder_fn, final_payload, copy_errors = await build_final_copy(
+        copy_context, deterministic_payload, request_id
+    )
+    
+    llm_rewrite_succeeded = (copy_source == "llm")
+    
+    # Update copy_debug with results from build_final_copy
+    copy_debug["copy_source"] = copy_source
+    copy_debug["copy_builder_fn"] = copy_builder_fn
+    copy_debug["copy_fields_present"] = list(final_payload.keys())
+    copy_debug["copy_payload_preview"] = {
+        "what_you_could_do_bullets": str(final_payload.get("what_you_could_do_bullets", []))[:80],
+        "why_bullets": str(final_payload.get("why_bullets", []))[:80],
+        "best_move": str(final_payload.get("best_move", ""))[:80],
+        "recommendations": str(final_payload.get("recommendations", []))[:80]
+    }
+    copy_debug["llm_attempted"] = llm_effective_enabled
+    copy_debug["llm_error_type"] = copy_errors.get("llm_error_type")
+    copy_debug["llm_error_message"] = copy_errors.get("llm_error_message")
+    copy_debug["llm_raw_preview"] = copy_errors.get("llm_raw_preview", "")[:200] if copy_errors.get("llm_raw_preview") else None
+    
+    # Log result
+    if copy_source == "llm":
+        logger.info(f"LLM_OK: request_id={request_id}")
+    else:
+        if copy_errors:
+            logger.warning(f"LLM_FAILED: request_id={request_id} error_type={copy_errors.get('llm_error_type')} message={copy_errors.get('llm_error_message')}")
+        else:
+            logger.info(f"TEMPLATES_USED: request_id={request_id} llm_effective={llm_effective_enabled}")
     
     # Extract final values from final_payload (deterministic or LLM-rewritten)
     playability_tier = final_payload["playability_tier"]
@@ -5628,23 +5721,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     suggested_plan = best_move
     
     # Map what_you_could_do_bullets to what_to_do_bullets for backward compatibility
+    # FINAL COPY: Use only final_payload - no overrides after this point
     what_to_do_bullets = what_you_could_do_bullets
-    
-    # Populate copy_debug fields
-    copy_debug["copy_fields_present"] = list(final_payload.keys())
-    copy_debug["copy_payload_preview"] = {
-        "what_you_could_do_bullets": str(final_payload.get("what_you_could_do_bullets", []))[:80],
-        "why_bullets": str(final_payload.get("why_bullets", []))[:80],
-        "best_move": str(final_payload.get("best_move", ""))[:80],
-        "recommendations": str(final_payload.get("recommendations", []))[:80]
-    }
-    
-    # Track which function built the bullets
-    if not llm_rewrite_succeeded:
-        if recommendations and len(what_you_could_do_bullets) > 0:
-            copy_debug["copy_builder_fn"] = "generate_recommendations -> format_as_bullets"
-        else:
-            copy_debug["copy_builder_fn"] = "ensure_assessment_defaults (fallback)"
     
     # Generate added_action from recommendations (for LLM summary)
     if recommendations:
@@ -6000,6 +6078,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             copy_builder_fn: {copy_debug.get('copy_builder_fn', 'unknown')}<br>
             tier: {playability_tier}<br>
             llm_effective: {llm_effective_enabled}<br>
+            llm_attempted: {copy_debug.get('llm_attempted', False)}<br>
+            {f'llm_error_type: {copy_debug.get("llm_error_type")}<br>' if copy_debug.get('llm_error_type') else ''}
+            {f'llm_error_message: {copy_debug.get("llm_error_message")}<br>' if copy_debug.get('llm_error_message') else ''}
             <br>
             <strong>Scoring Model Outputs:</strong><br>
             Overall Score: {overall_score}/100<br>
