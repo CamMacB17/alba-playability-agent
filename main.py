@@ -1421,7 +1421,7 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     Returns: (is_valid: bool, reason: str)
     """
     # Check all required keys exist
-    required_keys = ["playability_tier", "best_move", "why_bullets", "what_you_could_do_bullets"]
+    required_keys = ["playability_tier", "best_move", "banner_summary", "why_bullets", "what_you_could_do_bullets"]
     for key in required_keys:
         if key not in llm_output:
             return False, f"Missing required key: {key}"
@@ -1433,6 +1433,10 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     # Validate best_move matches exactly
     if llm_output["best_move"] != deterministic_payload["best_move"]:
         return False, f"best_move mismatch: expected '{deterministic_payload['best_move']}', got '{llm_output['best_move']}'"
+    
+    # Validate banner_summary is a non-empty string
+    if not isinstance(llm_output["banner_summary"], str) or not llm_output["banner_summary"].strip():
+        return False, "banner_summary must be a non-empty string"
     
     # Validate list lengths (allow +/-1 but never empty)
     list_checks = [
@@ -3403,24 +3407,42 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     reasons = deterministic_payload.get("reasons", [])
     recommendations = deterministic_payload.get("recommendations", [])
     
-    prompt = f"""You are rewriting golf course assessment text for clarity and simplicity. You MUST follow these rules:
+    # Extract tier_reasons for banner_summary generation
+    tier_reasons = deterministic_payload.get("tier_reasons", [])
+    
+    prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
 
-CRITICAL RULES:
+VOICE & STYLE RULES:
+1. Friendly, calm "pro shop" person - like chatting with someone who knows golf
+2. Explain trade-offs - help people understand what they're dealing with
+3. Sound human - conversational, not robotic
+4. Never dismissive - never say "go away" or make people feel unwelcome
+5. Never robotic commands - avoid "Play 18." "Enjoy your round." "Go play."
+6. Each bullet should feel like a helpful tip, not an order
+7. Use UK tone and spelling (colour, realise, etc.)
+8. Avoid judgement language about handicap - handicap is just context, not a limitation
+9. Handicap is only referenced when conditions meaningfully amplify difficulty - otherwise keep it light
+10. Never claim certainty - use "likely", "tends to", "you'll probably", "might", "could"
+11. "best_move" should be phrased as a suggestion, e.g. "Best move: 9 holes or a focused range session"
+    - NEVER: "Play 18." "Go play." "Enjoy your round."
+    - DO: "Best move: 9 holes or a focused range session" or "Best move: probably worth waiting for better conditions"
+
+CRITICAL STRUCTURE RULES:
 1. DO NOT change playability_tier or best_move - return them EXACTLY as provided
 2. DO NOT change the number of items in any list
 3. DO NOT remove any sections
 4. DO NOT add new sections
-5. ONLY rewrite the text/copy for clarity and simplicity
-6. Keep British English
-7. Use simple, clear language
+5. ONLY rewrite the text/copy for clarity and human tone
+6. Keep British English spelling and phrasing
 
 INPUT DATA (deterministic output):
 {json.dumps(deterministic_payload, indent=2)}
 
 TASK:
-Rewrite ONLY the text content:
-- why_bullets: rewrite each bullet point text (keep same count)
-- what_you_could_do_bullets: rewrite each bullet point text (keep same count)
+Rewrite ONLY the text content with friendly, human, pro-shop voice:
+- banner_summary: Generate a joined-up one-liner (1 sentence) that summarises WHY the tier is what it is. Example: "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring."
+- why_bullets: rewrite each bullet as a helpful tip (keep same count)
+- what_you_could_do_bullets: rewrite each bullet as a helpful tip (keep same count)
 - instead_activities: rewrite each activity text (keep same count, required for Challenging/Rough)
 - if_you_play_tips: rewrite each tip text (keep same count, required for Challenging/Rough)
 - reasons: rewrite "impact" text in each reason (keep same count and structure)
@@ -3430,8 +3452,9 @@ REQUIRED OUTPUT FORMAT (JSON):
 {{
     "playability_tier": "{playability_tier}",
     "best_move": "{best_move}",
-    "why_bullets": ["[rewritten bullet 1]", "[rewritten bullet 2]", ...],
-    "what_you_could_do_bullets": ["[rewritten bullet 1]", "[rewritten bullet 2]", ...],
+    "banner_summary": "[joined-up one-liner explaining WHY the tier is what it is - 1 sentence]",
+    "why_bullets": ["[rewritten bullet 1 - helpful tip]", "[rewritten bullet 2 - helpful tip]", ...],
+    "what_you_could_do_bullets": ["[rewritten bullet 1 - helpful tip]", "[rewritten bullet 2 - helpful tip]", ...],
     "instead_activities": ["[rewritten activity 1]", "[rewritten activity 2]", ...],
     "if_you_play_tips": ["[rewritten tip 1]", "[rewritten tip 2]", ...],
     "reasons": [
@@ -3439,14 +3462,14 @@ REQUIRED OUTPUT FORMAT (JSON):
             "factor": "[keep original]",
             "condition": "[keep original]",
             "threshold": "[keep original]",
-            "impact": "[rewritten impact text]"
+            "impact": "[rewritten impact text - friendly, human tone]"
         }},
         ...
     ],
     "recommendations": [
         {{
             "action": "[keep original]",
-            "reason": "[rewritten reason text]"
+            "reason": "[rewritten reason text - friendly, human tone]"
         }},
         ...
     ]
@@ -3455,6 +3478,7 @@ REQUIRED OUTPUT FORMAT (JSON):
 VALIDATION:
 - playability_tier MUST be exactly "{playability_tier}"
 - best_move MUST be exactly "{best_move}"
+- banner_summary MUST be a single sentence (non-empty string)
 - why_bullets MUST have exactly {len(why_bullets)} items
 - what_you_could_do_bullets MUST have exactly {len(what_you_could_do_bullets)} items
 - instead_activities MUST have exactly {len(instead_activities)} items
@@ -3477,7 +3501,7 @@ Return ONLY valid JSON matching the structure above."""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a text editor rewriting golf course assessment text for clarity. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided. Do not invent new content or change structure."
+                        "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands. Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -5237,6 +5261,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     # Extract final values from final_payload (deterministic or LLM-rewritten)
     playability_tier = final_payload["playability_tier"]
     best_move = final_payload["best_move"]
+    banner_summary = final_payload.get("banner_summary", "")  # LLM-generated or empty
     why_bullets = final_payload["why_bullets"]
     what_you_could_do_bullets = final_payload["what_you_could_do_bullets"]
     instead_activities = final_payload.get("instead_activities", [])
@@ -5286,16 +5311,18 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     weather_label_display = normalize_weather_label_for_display(weather_label, weather_data)
     ground_label_display = get_ground_label(ground_info)
     
-    # Generate banner summary using condition-based tier reasons
-    # Join tier reasons into a single sentence
-    if tier_reasons:
-        banner_summary = ". ".join(tier_reasons) + "."
-    else:
-        # Fallback if no reasons generated
-        if playability_tier in ["Great", "Decent"]:
-            banner_summary = "Good conditions today."
+    # Generate banner summary - use LLM-generated if available, otherwise fall back to deterministic
+    if not banner_summary or not banner_summary.strip():
+        # Fallback: Generate banner summary using condition-based tier reasons
+        # Join tier reasons into a single sentence
+        if tier_reasons:
+            banner_summary = ". ".join(tier_reasons) + "."
         else:
-            banner_summary = "Conditions add challenge today."
+            # Fallback if no reasons generated
+            if playability_tier in ["Great", "Decent"]:
+                banner_summary = "Good conditions today."
+            else:
+                banner_summary = "Conditions add challenge today."
     
     # Generate exposure/drainage-based advice (max 1 bullet)
     exposure_drainage_advice = generate_exposure_drainage_advice(
