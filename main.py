@@ -1,3 +1,23 @@
+"""
+TEMPORARY: Railway Log Error Analysis
+=====================================
+Please paste the latest "We couldn't check playability" error from Railway logs below.
+Look for the exception type, stack trace, and line numbers.
+
+Error page is rendered at: line 8137-8205 (when render_assessment_results raises Exception)
+
+Example format:
+---
+Exception Type: ValueError / TypeError / KeyError / etc.
+Timestamp: [timestamp from logs]
+Stack Trace:
+  File "main.py", line XXXX, in function_name
+    [code that failed]
+  File "main.py", line YYYY, in calling_function
+    [calling code]
+---
+"""
+
 import json
 import os
 import asyncio
@@ -6194,21 +6214,33 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     banner_headline_text = f"{day if day else 'Today'}'s Golf Conditions"  # Computed from day
     
     # Find the course to get coordinates and properties
+    # Hard failure: course not found should raise (but find_course_by_name returns None, doesn't raise)
     course_data = find_course_by_name(course)
     
     # Calculate target date and day of week
-    today = datetime.now().date()
-    if day == "Tomorrow":
-        target_date = (today + timedelta(days=1)).isoformat()
-        target_datetime = datetime.now() + timedelta(days=1)
-    else:
+    # Hard failure: invalid date/time should be handled gracefully (not raise)
+    try:
+        today = datetime.now().date()
+        if day == "Tomorrow":
+            target_date = (today + timedelta(days=1)).isoformat()
+            target_datetime = datetime.now() + timedelta(days=1)
+        else:
+            target_date = today.isoformat()
+            target_datetime = datetime.now()
+        
+        day_of_week = target_datetime.weekday()  # 0=Monday, 6=Sunday
+        month = target_datetime.month
+    except Exception as e:
+        # Invalid date/time input - log and use defaults
+        logger.error(f"Invalid date/time input (request_id={request_id}): {str(e)}", exc_info=True)
+        today = datetime.now().date()
         target_date = today.isoformat()
         target_datetime = datetime.now()
-    
-    day_of_week = target_datetime.weekday()  # 0=Monday, 6=Sunday
-    month = target_datetime.month
+        day_of_week = target_datetime.weekday()
+        month = target_datetime.month
     
     # Fetch weather data with error handling
+    # Hard failure: weather API failure should raise (keep existing behavior)
     weather_data = None
     tomorrow_weather = None
     historical_rainfall = None
@@ -6224,8 +6256,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             if day == "Today":
                 tomorrow_weather = await fetch_tomorrow_weather(lat, lon)
         except Exception as e:
-            logger.error(f"Error fetching weather data: {str(e)}", exc_info=True)
-            # Re-raise to be caught by assess_get() error handler
+            logger.error(f"Error fetching weather data (request_id={request_id}): {str(e)}", exc_info=True)
+            # Hard failure: re-raise weather API failures
             raise
     
     # Calculate all ratings
@@ -6513,69 +6545,132 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             "Take advantage of the good conditions. This is a great day to work on scoring and course management."
         ]
     
-    # Build deterministic payload dict with ALL sections
-    deterministic_payload = {
-        "playability_tier": playability_tier,
-        "best_move": best_move,
-        "why_bullets": why_bullets,
-        "what_you_could_do_bullets": what_you_could_do_bullets,
-        "instead_activities": instead_activities,
-        "if_you_play_tips": if_you_play_tips,
-        "reasons": reasons,
-        "recommendations": recommendations,
-        "tier_reasons": tier_reasons,
-        "trade_off_sentence": "",  # LLM will generate this, empty for deterministic fallback
-        "_debug_mode": debug_mode  # Internal flag for debug logging
-    }
-    
-    # Ensure all required keys exist and validate values
-    deterministic_payload = ensure_assessment_defaults(deterministic_payload)
-    
     # ============================================================================
-    # ATTEMPT LLM REWRITING (only after deterministic values exist)
-    # LLM can ONLY rewrite copy/text, not structure
+    # COPY GENERATION - WRAP ALL IN TRY/EXCEPT TO FAIL OPEN
+    # Only hard failures (course not found, weather API failure, invalid date/time) should raise
+    # Everything else (LLM failures, template building failures, etc.) should fall back gracefully
     # ============================================================================
-    final_payload = deterministic_payload.copy()  # Start with deterministic
-    llm_rewrite_succeeded = False
-    
-    # Initialize copy_debug tracking
+    # Initialize copy_debug before try block so it's always available
     copy_debug = {
         "copy_source": "unknown",
         "copy_builder_fn": "unknown",
         "copy_fields_present": [],
         "copy_payload_preview": {}
     }
-    llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
     
-    # Build context for copy generation
-    copy_context = {
-        "llm_effective": llm_effective_enabled,
-        "openai_client": openai_client,
-        "course_name": course,
-        "handicap": handicap,
-        "debug_mode": debug_mode
-    }
-    
-    # Single function call to build final copy - wrap in try/except to ensure we never throw
-    # This ensures the page always renders with templates if LLM fails
     try:
-        copy_source, copy_builder_fn, final_payload, copy_errors = await build_final_copy(
-            copy_context, deterministic_payload, request_id
-        )
-    except Exception as e:
-        # Fail open: if copy generation fails for any reason, use templates
-        logger.error(f"Copy generation failed, falling back to templates: {str(e)}", exc_info=True)
+        # Build deterministic payload dict with ALL sections
+        deterministic_payload = {
+            "playability_tier": playability_tier,
+            "best_move": best_move,
+            "why_bullets": why_bullets,
+            "what_you_could_do_bullets": what_you_could_do_bullets,
+            "instead_activities": instead_activities,
+            "if_you_play_tips": if_you_play_tips,
+            "reasons": reasons,
+            "recommendations": recommendations,
+            "tier_reasons": tier_reasons,
+            "trade_off_sentence": "",  # LLM will generate this, empty for deterministic fallback
+            "_debug_mode": debug_mode  # Internal flag for debug logging
+        }
+        
+        # Ensure all required keys exist and validate values
+        deterministic_payload = ensure_assessment_defaults(deterministic_payload)
+        
+        # ============================================================================
+        # ATTEMPT LLM REWRITING (only after deterministic values exist)
+        # LLM can ONLY rewrite copy/text, not structure
+        # ============================================================================
+        final_payload = deterministic_payload.copy()  # Start with deterministic
+        llm_rewrite_succeeded = False
+        
+        # Initialize copy_debug tracking
+        copy_debug = {
+            "copy_source": "unknown",
+            "copy_builder_fn": "unknown",
+            "copy_fields_present": [],
+            "copy_payload_preview": {}
+        }
+        llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
+        
+        # Build context for copy generation
+        copy_context = {
+            "llm_effective": llm_effective_enabled,
+            "openai_client": openai_client,
+            "course_name": course,
+            "handicap": handicap,
+            "debug_mode": debug_mode
+        }
+        
+        # Single function call to build final copy - wrap in try/except to ensure we never throw
+        # This ensures the page always renders with templates if LLM fails
+        try:
+            copy_source, copy_builder_fn, final_payload, copy_errors = await build_final_copy(
+                copy_context, deterministic_payload, request_id
+            )
+        except Exception as e:
+            # Fail open: if copy generation fails for any reason, use templates
+            logger.error(f"Copy generation failed (request_id={request_id}), falling back to templates: {str(e)}", exc_info=True)
+            copy_source = "templates"
+            copy_builder_fn = "generate_recommendations"
+            copy_errors = {
+                "llm_error_type": type(e).__name__,
+                "llm_error_message": str(e),
+                "copy_generation_failed": True
+            }
+            # Use deterministic_payload as-is (it already has all required keys)
+            final_payload = deterministic_payload
+        
+        llm_rewrite_succeeded = (copy_source == "llm")
+        
+    except Exception as copy_exception:
+        # Fail open: if ANY copy generation fails (template building, ensure_assessment_defaults, etc.),
+        # log it and use safe defaults
+        logger.error(f"Copy generation failed completely (request_id={request_id}), using safe defaults: {str(copy_exception)}", exc_info=True)
+        
+        # Use safe defaults that are guaranteed to work
+        deterministic_payload = {
+            "playability_tier": playability_tier,
+            "best_move": best_move,
+            "why_bullets": why_bullets if why_bullets else ["Conditions are suitable for golf today."],
+            "what_you_could_do_bullets": what_you_could_do_bullets if what_you_could_do_bullets else ["18 holes works well today. Conditions are manageable."],
+            "instead_activities": instead_activities if instead_activities else ["9 holes or a range session gives you good value if you're pressed for time."],
+            "if_you_play_tips": if_you_play_tips if if_you_play_tips else ["Keep an eye on the weather. Conditions can change, so be prepared."],
+            "reasons": reasons if reasons else [],
+            "recommendations": recommendations if recommendations else [],
+            "tier_reasons": tier_reasons if tier_reasons else [],
+            "trade_off_sentence": ""
+        }
+        
+        # Try ensure_assessment_defaults one more time with safe payload
+        try:
+            deterministic_payload = ensure_assessment_defaults(deterministic_payload)
+        except Exception as e2:
+            logger.error(f"ensure_assessment_defaults failed (request_id={request_id}): {str(e2)}", exc_info=True)
+            # Use absolute minimum safe defaults
+            deterministic_payload = {
+                "playability_tier": "Decent",
+                "best_move": "18 holes",
+                "why_bullets": ["Conditions are suitable for golf today."],
+                "what_you_could_do_bullets": ["18 holes works well today. Conditions are manageable."],
+                "instead_activities": ["9 holes or a range session gives you good value if you're pressed for time."],
+                "if_you_play_tips": ["Keep an eye on the weather. Conditions can change, so be prepared."],
+                "reasons": [],
+                "recommendations": [],
+                "tier_reasons": [],
+                "trade_off_sentence": ""
+            }
+        
+        final_payload = deterministic_payload
         copy_source = "templates"
         copy_builder_fn = "generate_recommendations"
         copy_errors = {
-            "llm_error_type": type(e).__name__,
-            "llm_error_message": str(e),
+            "llm_error_type": type(copy_exception).__name__,
+            "llm_error_message": str(copy_exception),
             "copy_generation_failed": True
         }
-        # Use deterministic_payload as-is (it already has all required keys)
-        final_payload = deterministic_payload
-    
-    llm_rewrite_succeeded = (copy_source == "llm")
+        llm_rewrite_succeeded = False
+        # copy_debug already initialized before try block
     
     # Update copy_debug with results from build_final_copy
     copy_debug["copy_source"] = copy_source
