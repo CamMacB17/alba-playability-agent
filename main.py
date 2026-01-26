@@ -1345,6 +1345,75 @@ def get_decision_classification(playability_tier: str) -> str:
     return PLAYABILITY_DECISION_MAPPING.get(playability_tier, "Unknown")
 
 
+def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ensure assessment result has all required keys with valid values.
+    Fills missing keys and validates tier values.
+    
+    Args:
+        result: Dict with assessment data
+    
+    Returns: Dict with all required keys filled and validated
+    """
+    valid_tiers = ["Great", "Decent", "Challenging", "Rough"]
+    
+    # Validate and set playability_tier
+    tier = result.get("playability_tier", "Decent")
+    if tier not in valid_tiers:
+        tier = "Decent"
+    result["playability_tier"] = tier
+    
+    # Ensure best_move exists (string)
+    if "best_move" not in result or not isinstance(result["best_move"], str) or not result["best_move"]:
+        result["best_move"] = "18 holes"
+    
+    # Ensure why_bullets exists (list, len 2-4)
+    if "why_bullets" not in result or not isinstance(result["why_bullets"], list):
+        result["why_bullets"] = ["Conditions are suitable for golf today.", "Weather and ground conditions are manageable."]
+    # Ensure at least 2 items
+    while len(result["why_bullets"]) < 2:
+        result["why_bullets"].append("Conditions are manageable for golf.")
+    # Cap at 4 items
+    result["why_bullets"] = result["why_bullets"][:4]
+    
+    # Ensure what_you_could_do_bullets exists (list, len 1-3)
+    if "what_you_could_do_bullets" not in result or not isinstance(result["what_you_could_do_bullets"], list):
+        result["what_you_could_do_bullets"] = ["Enjoy your round. Conditions are suitable today."]
+    # Ensure at least 1 item
+    if len(result["what_you_could_do_bullets"]) < 1:
+        result["what_you_could_do_bullets"] = ["Enjoy your round. Conditions are suitable today."]
+    # Cap at 3 items
+    result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:3]
+    
+    # Ensure instead_activities exists (list, len 2-5) for Challenging/Rough, optional for Decent
+    if "instead_activities" not in result or not isinstance(result["instead_activities"], list):
+        if tier in ["Challenging", "Rough"]:
+            result["instead_activities"] = ["Range session", "Short game practice", "Putting green"]
+        elif tier == "Decent":
+            result["instead_activities"] = ["9 holes", "Range session"]
+        else:
+            result["instead_activities"] = []
+    # Ensure proper length for Challenging/Rough
+    if tier in ["Challenging", "Rough"]:
+        while len(result["instead_activities"]) < 2:
+            result["instead_activities"].append("Range session")
+        result["instead_activities"] = result["instead_activities"][:5]
+    
+    # Ensure if_you_play_tips exists (list, len 2-4) for Challenging/Rough, optional otherwise
+    if "if_you_play_tips" not in result or not isinstance(result["if_you_play_tips"], list):
+        if tier in ["Challenging", "Rough"]:
+            result["if_you_play_tips"] = ["Take one more club and swing smooth", "Flight it down in the wind", "Waterproofs and spare glove"]
+        else:
+            result["if_you_play_tips"] = []
+    # Ensure proper length for Challenging/Rough
+    if tier in ["Challenging", "Rough"]:
+        while len(result["if_you_play_tips"]) < 2:
+            result["if_you_play_tips"].append("Adjust expectations and focus on technique")
+        result["if_you_play_tips"] = result["if_you_play_tips"][:4]
+    
+    return result
+
+
 def get_suggested_plan(playability_tier: str) -> str:
     """
     Map playability_tier to suggested plan.
@@ -4764,6 +4833,10 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     reasons = playability["reasons"]
     factor_scores = playability["factor_scores"]
     
+    # ============================================================================
+    # COMPUTE ALL DETERMINISTIC VALUES FIRST (before any LLM attempt)
+    # ============================================================================
+    
     # Classify playability tier based ONLY on weather and ground conditions
     # Extract weather data for tier classification
     wind_speed_kmh = weather_data.get("wind_speed", 0) if weather_data else 0
@@ -4781,10 +4854,11 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         ground_label
     )
     
-    # Final guard: ensure playability_tier is always set (should never trigger but protects us)
-    if not playability_tier:
+    # Validate playability_tier is one of valid values
+    valid_tiers = ["Great", "Decent", "Challenging", "Rough"]
+    if playability_tier not in valid_tiers:
         playability_tier = "Decent"
-        logger.warning(f"playability_tier was empty, using default 'Decent' (request_id={request_id})")
+        logger.warning(f"Invalid playability_tier, using default 'Decent' (request_id={request_id})")
     
     # Generate recommendations using two-stage system
     # Stage A: Base recommendation from tier only
@@ -4805,6 +4879,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         daylight_label=daylight_label
     )
     
+    # Get suggested plan from tier (best_move)
+    best_move = get_suggested_plan(playability_tier)
+    
     # Generate tier reason strings (condition-based only, no handicap)
     # Extract needed values from weather_info and weather_data
     precipitation_label = weather_info.get("precipitation_label", "Dry")
@@ -4820,10 +4897,101 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         ground_label
     )
     
-    # Always try LLM rewrite if available (only rewrites for clarity, doesn't invent)
-    # Wrap LLM generation/parsing/validation in try/except
+    # Generate handicap-aware why bullets (deterministic)
+    # Format: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
+    # Cap and adjust based on golf_experience
+    why_bullets = generate_handicap_aware_why_bullets(
+        reasons, handicap, weather_label, ground_label, busyness_label, golf_experience
+    )
+    
+    # Generate what_you_could_do_bullets from structured recommendations (deterministic)
+    what_you_could_do_bullets = []
+    seen_actions = set()
+    
+    if recommendations:
+        for rec in recommendations:
+            action = rec.get("action", "")
+            if not action:
+                continue
+            
+            # Format bullet: "[Action]." (separate sentence, actions only)
+            action_clean = action.strip()
+            if not action_clean.endswith('.'):
+                action_clean += "."
+            
+            # Deduplicate by action
+            action_normalized = action.lower().strip()
+            if action_normalized not in seen_actions:
+                seen_actions.add(action_normalized)
+                what_you_could_do_bullets.append(action_clean)
+            
+            # Cap bullets based on golf_experience
+            max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
+            if len(what_you_could_do_bullets) >= max_what_bullets:
+                break
+    
+    # Ensure at least 1 item
+    if len(what_you_could_do_bullets) < 1:
+        if playability_tier in ["Great", "Decent"]:
+            what_you_could_do_bullets.append("Enjoy your round. Conditions are suitable today.")
+        else:
+            what_you_could_do_bullets.append("Consider waiting for better conditions. Today's conditions add challenge.")
+    
+    # Cap at 3 items
+    what_you_could_do_bullets = what_you_could_do_bullets[:3]
+    
+    # Generate instead_activities (deterministic)
+    instead_activities = []
+    if playability_tier == "Challenging":
+        instead_activities = ["9 holes", "Range session", "Short game practice"]
+    elif playability_tier == "Rough":
+        instead_activities = ["Range session", "Short game practice", "Putting green", "Simulator"]
+    elif playability_tier == "Decent":
+        instead_activities = ["9 holes", "Range session"]  # Optional for Decent
+    
+    # Generate if_you_play_tips (deterministic)
+    if_you_play_tips = []
+    if playability_tier in ["Challenging", "Rough"]:
+        if_you_play_tips = [
+            "Waterproofs and spare glove",
+            "Take one more club and swing smooth",
+            "Flight it down in the wind",
+            "Adjust expectations and focus on technique"
+        ]
+    
+    # Build deterministic result dict
+    deterministic_result = {
+        "playability_tier": playability_tier,
+        "best_move": best_move,
+        "why_bullets": why_bullets,
+        "what_you_could_do_bullets": what_you_could_do_bullets,
+        "instead_activities": instead_activities,
+        "if_you_play_tips": if_you_play_tips,
+        "reasons": reasons,
+        "recommendations": recommendations,
+        "tier_reasons": tier_reasons
+    }
+    
+    # Ensure all required keys exist and validate values
+    deterministic_result = ensure_assessment_defaults(deterministic_result)
+    
+    # Extract validated values
+    playability_tier = deterministic_result["playability_tier"]
+    best_move = deterministic_result["best_move"]
+    why_bullets = deterministic_result["why_bullets"]
+    what_you_could_do_bullets = deterministic_result["what_you_could_do_bullets"]
+    instead_activities = deterministic_result["instead_activities"]
+    if_you_play_tips = deterministic_result["if_you_play_tips"]
+    reasons = deterministic_result["reasons"]
+    recommendations = deterministic_result["recommendations"]
+    tier_reasons = deterministic_result["tier_reasons"]
+    
+    # ============================================================================
+    # ATTEMPT LLM REWRITING (only after deterministic values exist)
+    # ============================================================================
     llm_rewrite_succeeded = False
     llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
+    
     if openai_client:
         try:
             deterministic_data = {
@@ -4851,67 +5019,16 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 raise ValueError("Invalid LLM output format")
         except Exception as e:
             # Fallback gracefully to deterministic on any error (don't leak secrets)
-            logger.error(f"LLM_FALLBACK: request_id={request_id} err={str(e)}")
+            logger.error(f"LLM_FAIL: request_id={request_id} error={str(e)}")
             # reasons and recommendations remain as deterministic versions
             # playability_tier remains as deterministic value
     
-    # Get suggested plan from tier
-    suggested_plan = get_suggested_plan(playability_tier)
+    # Use validated deterministic values (already computed above)
+    # All deterministic values are now set and validated
+    suggested_plan = best_move
     
-    # Generate handicap-aware why bullets
-    # Format: "[Factor]: [what's happening], so at a {handicap} handicap you can expect [impact]."
-    # Cap and adjust based on golf_experience
-    why_bullets = generate_handicap_aware_why_bullets(
-        reasons, handicap, weather_label, ground_label, busyness_label, golf_experience
-    )
-    
-    # Generate what to do bullets from structured recommendations
-    # Format: "[Action]. [Why tied to handicap]."
-    # Rules: 2-4 bullets, each starts with action, includes WHY tied to handicap, one sentence, ends with full stop
-    # Remove score references from user-facing text
-    what_to_do_bullets = []
-    seen_actions = set()
-    
-    if recommendations:
-        for rec in recommendations:
-            action = rec.get("action", "")
-            
-            if not action:
-                continue
-            
-            # Format bullet: "[Action]." (separate sentence, actions only, not analysis)
-            # Ensure action ends with period if it doesn't already
-            action_clean = action.strip()
-            if not action_clean.endswith('.'):
-                action_clean += "."
-            
-            # Use action only (not analysis/reason) - format as separate bullet sentence
-            bullet = action_clean
-            
-            # Deduplicate by action
-            action_normalized = action.lower().strip()
-            if action_normalized not in seen_actions:
-                seen_actions.add(action_normalized)
-                what_to_do_bullets.append(bullet)
-            
-            # Cap bullets based on golf_experience
-            max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
-            if len(what_to_do_bullets) >= max_what_bullets:
-                break
-    
-    # Ensure we have at least 2 bullets
-    if len(what_to_do_bullets) < 2:
-        if playability_tier in ["Great", "Decent"]:
-            what_to_do_bullets.append("Enjoy your round. Conditions are suitable today.")
-        else:
-            if handicap is not None:
-                what_to_do_bullets.append(f"Consider waiting for better conditions. Today's conditions tend to feel tougher if you're still building consistency.")
-            else:
-                what_to_do_bullets.append("Consider waiting for better conditions. Today's conditions add challenge.")
-    
-    # Cap bullets based on golf_experience
-    max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
-    what_to_do_bullets = what_to_do_bullets[:max_what_bullets]
+    # Map what_you_could_do_bullets to what_to_do_bullets for backward compatibility
+    what_to_do_bullets = what_you_could_do_bullets
     
     # Generate added_action from recommendations (for LLM summary)
     if recommendations:
@@ -5091,11 +5208,17 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     """
     
     # "If not, do this instead" section for Challenging or Rough tiers
+    # Use deterministic instead_activities and if_you_play_tips
     if playability_tier in ["Challenging", "Rough"]:
-        if playability_tier == "Challenging":
-            instead_suggestions = "9 holes, range session, short game"
-        else:  # Rough
-            instead_suggestions = "Range session, short game, putting green, simulator"
+        instead_suggestions = ", ".join(instead_activities) if instead_activities else "Range session, short game practice"
+        
+        # Generate bullets from if_you_play_tips
+        tips_bullets_html = ""
+        if if_you_play_tips:
+            tips_bullets_html = "".join([f"<li>{tip}</li>" for tip in if_you_play_tips])
+        else:
+            # Fallback if tips not generated
+            tips_bullets_html = "<li>Waterproofs and spare glove</li><li>Take one more club and swing smooth</li><li>Flight it down in the wind</li>"
         
         instead_section_html = f"""
                     <div class="card card-instead">
@@ -5104,9 +5227,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                             <div class="instead-suggestions">{instead_suggestions}</div>
                             <div class="instead-subtitle">And if you did decide to play...</div>
                             <ul class="instead-bullets">
-                                <li>Waterproofs and spare glove</li>
-                                <li>Take one more club and swing smooth</li>
-                                <li>Flight it down in the wind</li>
+                                {tips_bullets_html}
                             </ul>
                         </div>
                     </div>
