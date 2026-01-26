@@ -3983,14 +3983,9 @@ async def debug_course(name: str = Query(None, description="Course name to inspe
     
     result = {
         "found": True,
-        "raw_course_data": raw_course_data,
-        "override_data": override_data if override_data else None,
-        "final_merged_data": course_data,
-        "override_applied": override_data is not None,
-        "defaults_applied": {
-            "exposure": course_data.get("exposure", "Mixed"),
-            "drainage": course_data.get("drainage", "Average")
-        },
+        "base_course": raw_course_data,
+        "overrides_applied": override_data if override_data else None,
+        "merged_course": course_data,
         "scoring_fields": {
             "popularity_tier": {
                 "value": popularity_tier,

@@ -2,13 +2,11 @@
   {
     "name": "Royal Blackheath Golf Club",
     "exposure": "Exposed",
-    "drainage": "Good",
-    "notes": "Well-drained heathland course"
+    "drainage": "Good"
   },
   {
     "name": "Richmond Park Golf Course",
     "exposure": "Exposed",
-    "drainage": "Average",
-    "notes": "Public course with good drainage"
+    "drainage": "Average"
   }
 ]
