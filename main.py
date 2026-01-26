@@ -2783,6 +2783,52 @@ def generate_banner_summary(reasons, playability_tier, handicap, weather_label_d
         return "Conditions add challenge today."
 
 
+def generate_exposure_drainage_advice(
+    course_data: Dict[str, Any],
+    ground_label: str,
+    weather_info: Dict[str, Any],
+    playability_tier: str,
+    golf_experience: str
+) -> str:
+    """
+    Generate exposure/drainage-based advice bullet.
+    Returns empty string if no advice applies.
+    
+    Rules:
+    - If drainage=Poor and ground is Soft/Too soft: suggest "expect plugged lies / little roll" and bias towards range/short game for Beginner/Regular
+    - If exposure=Exposed and wind is Windy: suggest "flight it down / club up / lower target" for Confident; suggest range for Beginner
+    - If drainage=Good: avoid doom language even when ground is Soft (unless tier=Rough)
+    """
+    if not course_data:
+        return ""
+    
+    exposure = course_data.get("exposure", "Mixed")
+    drainage = course_data.get("drainage", "Average")
+    wind_label = weather_info.get("wind_label", "Calm") if isinstance(weather_info, dict) else "Calm"
+    
+    # Rule 1: Poor drainage + Soft/Too soft ground
+    if drainage == "Poor" and ground_label in ["Soft", "Too soft"]:
+        if golf_experience in ["Beginner", "Regular"]:
+            return "Expect plugged lies and little roll—consider range or short game practice instead."
+        else:
+            return "Expect plugged lies and little roll on approach shots."
+    
+    # Rule 2: Exposed + Windy
+    if exposure == "Exposed" and wind_label == "Windy":
+        if golf_experience == "Confident":
+            return "Flight it down, club up, and lower your target—the exposed layout amplifies wind effects."
+        elif golf_experience == "Beginner":
+            return "Exposed course with strong winds—consider range practice instead."
+        else:  # Regular
+            return "Exposed course amplifies wind effects—club up and play conservatively."
+    
+    # Rule 3: Good drainage - avoid doom language (already handled by tier logic, but can add positive note)
+    if drainage == "Good" and ground_label in ["Soft", "Too soft"] and playability_tier != "Rough":
+        return "Good drainage helps even with recent rain—ground should recover faster."
+    
+    return ""
+
+
 def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground_label, busyness_label, golf_experience="Regular"):
     """
     Generate why bullets, capped based on golf_experience.
@@ -4882,6 +4928,11 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         else:
             banner_summary = "Conditions add challenge today."
     
+    # Generate exposure/drainage-based advice (max 1 bullet)
+    exposure_drainage_advice = generate_exposure_drainage_advice(
+        course_data, ground_label, weather_info, playability_tier, golf_experience
+    )
+    
     # Why section - cap bullets based on golf_experience
     # Beginner: up to 6 total guidance bullets, Regular: 3-4, Confident: max 3
     max_why_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
@@ -4896,8 +4947,19 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         )
         why_bullets_final = why_bullets_final[:max_why_bullets]
     
+    # Add exposure/drainage advice to "Why" if available and not suggesting range (max 1 bullet)
+    if exposure_drainage_advice and "range" not in exposure_drainage_advice.lower() and "short game" not in exposure_drainage_advice.lower():
+        if len(why_bullets_final) < max_why_bullets:
+            why_bullets_final.append(exposure_drainage_advice)
+    
     # Render as HTML
     why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets_final]) + '</ul>'
+    
+    # Add exposure/drainage advice to "What to do" if it suggests range/short game (max 1 bullet)
+    if exposure_drainage_advice and ("range" in exposure_drainage_advice.lower() or "short game" in exposure_drainage_advice.lower()):
+        # Only add if not already in why bullets (avoid duplication)
+        if exposure_drainage_advice not in why_bullets_final:
+            what_to_do_bullets.append(exposure_drainage_advice)
     
     # What to do instead - cap bullets based on golf_experience
     # Beginner: up to 6 total, Regular: 2-4, Confident: max 3
