@@ -11,7 +11,7 @@ from starlette.requests import Request as StarletteRequest
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from urllib.parse import urlencode
 import httpx
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 from uuid import uuid4
 
 # Set up logging
@@ -3634,14 +3634,119 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
     return bullets[:max_bullets] if len(bullets) >= min_bullets else bullets
 
 
+def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
+    """
+    Robustly parse LLM JSON response with multiple salvage strategies.
+    
+    Returns:
+        - Dict with parsed payload if successful
+        - None if all salvage attempts fail
+    
+    Parse stages:
+        1. json_ok: Direct json.loads succeeds
+        2. json_extracted_ok: Extract JSON object between first { and last }, then parse
+        3. plaintext_salvage_ok: Extract bullets from plain text, fill missing fields
+        4. failed: All attempts failed
+    """
+    import json
+    import re
+    from typing import Optional, Dict, Any
+    
+    if not raw or not isinstance(raw, str):
+        return None
+    
+    raw_trimmed = raw.strip()
+    
+    # Stage 1: Try direct json.loads
+    try:
+        payload = json.loads(raw_trimmed)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+    
+    # Stage 2: Extract JSON object substring between first { and last }
+    try:
+        first_brace = raw_trimmed.find('{')
+        last_brace = raw_trimmed.rfind('}')
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            json_substring = raw_trimmed[first_brace:last_brace + 1]
+            payload = json.loads(json_substring)
+            if isinstance(payload, dict):
+                return payload
+    except json.JSONDecodeError:
+        pass
+    
+    # Stage 3: Plain text salvage - extract bullets and build minimal structure
+    try:
+        lines = raw_trimmed.split('\n')
+        payload = {
+            "headline": "",
+            "best_move": "",
+            "why_bullets": [],
+            "what_you_could_do_bullets": [],
+            "if_not_try_this_instead_bullets": [],
+            "tips_if_you_play_bullets": []
+        }
+        
+        current_section = None
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Detect section headers
+            if "headline" in line.lower() or "summary" in line.lower():
+                # Extract headline text
+                colon_idx = line.find(':')
+                if colon_idx != -1:
+                    payload["headline"] = line[colon_idx + 1:].strip().strip('"').strip("'")
+                current_section = None
+            elif "best_move" in line.lower() or "best" in line.lower():
+                colon_idx = line.find(':')
+                if colon_idx != -1:
+                    payload["best_move"] = line[colon_idx + 1:].strip().strip('"').strip("'")
+                current_section = None
+            elif "why" in line.lower() and ("bullet" in line.lower() or "reason" in line.lower()):
+                current_section = "why_bullets"
+            elif "what" in line.lower() and ("could" in line.lower() or "do" in line.lower()):
+                current_section = "what_you_could_do_bullets"
+            elif "instead" in line.lower() or "alternative" in line.lower():
+                current_section = "if_not_try_this_instead_bullets"
+            elif "tip" in line.lower() or "play" in line.lower():
+                current_section = "tips_if_you_play_bullets"
+            
+            # Extract bullet items (lines starting with •, -, *, or numbered)
+            if line.startswith(('•', '-', '*')) or re.match(r'^\d+[\.\)]\s', line):
+                bullet_text = re.sub(r'^[•\-\*]\s*', '', line)
+                bullet_text = re.sub(r'^\d+[\.\)]\s*', '', bullet_text)
+                bullet_text = bullet_text.strip().strip('"').strip("'").strip(',')
+                
+                if current_section and current_section in payload:
+                    payload[current_section].append(bullet_text)
+                elif not current_section:
+                    # Default to why_bullets if no section detected
+                    payload["why_bullets"].append(bullet_text)
+        
+        # Only return if we extracted at least some content
+        if payload["headline"] or any(payload.values()):
+            return payload
+    except Exception:
+        pass
+    
+    # Stage 4: All attempts failed
+    return None
+
+
 def clean_copy_text(text: str) -> str:
     """
     Clean copy text by replacing dashes/hyphens with proper punctuation,
     removing repetition, and enforcing max length.
     
     Rules:
-    - Replace " — " and "–" with ". "
-    - Replace " - " with ". "
+    - Always replace "—" (em dash) with ". "
+    - Always replace "–" (en dash) with ". "
+    - Always replace " - " (hyphen with spaces) with ". "
     - Don't break legitimate words like "all weather"
     - Remove repetition patterns (e.g., "18 holes. Full round..." -> keep only one)
     - Enforce max 140 characters per bullet, split into two sentences if needed
@@ -3650,12 +3755,16 @@ def clean_copy_text(text: str) -> str:
         return text
     
     # Replace em dashes, en dashes, and hyphens used as separators
-    # Replace " — " (em dash with spaces) with ". "
+    # Always replace "—" (em dash) with ". " - handle both with and without spaces
     text = text.replace(" — ", ". ")
-    # Replace "–" (en dash) with ". "
+    text = text.replace("—", ". ")
+    # Always replace "–" (en dash) with ". "
     text = text.replace("–", ". ")
-    # Replace " - " (hyphen with spaces) with ". "
+    # Always replace " - " (hyphen with spaces) with ". "
     text = text.replace(" - ", ". ")
+    
+    # Final safety pass: catch any remaining dashes
+    text = text.replace("—", ". ").replace("–", ". ")
     
     # Don't break legitimate compound words/phrases
     # Common golf terms that use hyphens legitimately
@@ -3870,6 +3979,8 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             errors["llm_error_type"] = type(e).__name__
             errors["llm_error_message"] = str(e)
             errors["llm_raw_preview"] = ""
+            errors["llm_parse_stage"] = "failed"
+            errors["llm_missing_keys"] = []
             # Fall back to templates
             return "templates", "generate_recommendations", deterministic_payload, errors
     
@@ -3990,54 +4101,39 @@ Rewrite ONLY the text content with friendly, human, pro-shop voice. You MUST gen
 8. recommendations: rewrite "reason" text in each recommendation (keep same count and structure)
 
 REQUIRED OUTPUT FORMAT (JSON):
+You MUST return ONLY valid JSON with exactly these keys. No markdown, no extra keys, no comments, no hyphens or dash characters (—, –, -).
+
 {{
-    "playability_tier": "{playability_tier}",
+    "headline": "[1 sentence summary in friendly tone - useful and specific, not flat]",
     "best_move": "{best_move}",
-    "banner_summary": "[1 sentence summary in friendly tone - useful and specific, not flat]",
     "why_bullets": ["[bullet 1 - weather/ground]", "[bullet 2 - course]", "[bullet 3 - handicap only if relevant]"],
     "what_you_could_do_bullets": ["[bullet 1 - actionable]", "[bullet 2 - actionable]"],
-    "trade_off_sentence": "[1 sentence explaining trade-off, e.g. 'You'll get more out of X than slogging through Y.']",
-    "instead_activities": ["[rewritten activity 1]", "[rewritten activity 2]", ...],
-    "if_you_play_tips": ["[rewritten tip 1]", "[rewritten tip 2]", ...],
-    "reasons": [
-        {{
-            "factor": "[keep original]",
-            "condition": "[keep original]",
-            "threshold": "[keep original]",
-            "impact": "[rewritten impact text - friendly, human tone]"
-        }},
-        ...
-    ],
-    "recommendations": [
-        {{
-            "action": "[keep original]",
-            "reason": "[rewritten reason text - friendly, human tone]"
-        }},
-        ...
-    ]
+    "if_not_try_this_instead_bullets": ["[alternative activity 1]", "[alternative activity 2]", ...],
+    "tips_if_you_play_bullets": ["[tip 1]", "[tip 2]", "[tip 3]", ...]
 }}
+
+CRITICAL RULES:
+- Return ONLY valid JSON - no markdown code blocks, no ```json```, no explanations
+- Use exactly these keys: headline, best_move, why_bullets, what_you_could_do_bullets, if_not_try_this_instead_bullets, tips_if_you_play_bullets
+- No extra keys beyond these 6
+- No comments in JSON
+- No hyphens or dash characters (—, –, -) anywhere in the text - use periods or commas instead
+- headline: exactly 1 sentence, non-empty string
+- why_bullets: exactly 3 items (weather/ground first, then course, handicap only if relevant)
+- what_you_could_do_bullets: exactly 2 items (actionable, not generic)
+- if_not_try_this_instead_bullets: exactly {len(instead_activities)} items
+- tips_if_you_play_bullets: exactly {len(if_you_play_tips)} items
+- All list items must be non-empty strings
+- best_move MUST be exactly "{best_move}" (do not change)
 
 HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
 - "Play 18."
 - "Enjoy your round."
 - "Conditions are suitable today."
+- Any hyphens or dashes (—, –, -) - use periods or commas instead
 If output contains any of these, it will be rejected and deterministic templates used instead.
 
-VALIDATION:
-- playability_tier MUST be exactly "{playability_tier}"
-- best_move MUST be exactly "{best_move}"
-- banner_summary MUST be a single sentence (non-empty string, useful and specific, not flat)
-- why_bullets MUST have exactly 3 items (weather/ground first, then course, handicap only if relevant)
-- what_you_could_do_bullets MUST have exactly 2 items (actionable, not generic)
-- trade_off_sentence MUST be present (1 sentence explaining trade-off)
-- instead_activities MUST have exactly {len(instead_activities)} items
-- if_you_play_tips MUST have exactly {len(if_you_play_tips)} items
-- reasons MUST have exactly {len(reasons)} items
-- recommendations MUST have exactly {len(recommendations)} items
-- All list items must be non-empty strings
-- Do not change any structure, only rewrite text
-
-Return ONLY valid JSON matching the structure above."""
+Return ONLY valid JSON matching the structure above. No markdown, no code blocks, no explanations."""
 
     request_id_str = f" request_id={request_id}" if request_id else ""
     logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
@@ -4103,20 +4199,94 @@ Return ONLY valid JSON matching the structure above."""
         logger.info(f"LLM_OK: request_id={request_id} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
         
         response_text = response.choices[0].message.content.strip()
+        llm_raw_preview = response_text[:200] if response_text else ""
         
-        # Parse JSON response
-        try:
-            rewritten_data = json.loads(response_text)
-        except json.JSONDecodeError as e:
+        # Parse JSON response with robust salvage
+        rewritten_data = parse_llm_payload(response_text)
+        parse_stage = "json_ok"  # Default, will be updated if salvage was used
+        
+        if rewritten_data is None:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM returned invalid JSON: {e} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-            raise ValueError("LLM returned invalid JSON structure")
+            logger.error(f"LLM parse failed: all salvage attempts failed duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            raise ValueError("LLM returned invalid JSON structure - all parse attempts failed")
         
-        # Add timing info to response metadata (for debug tracking)
+        # Determine parse stage (check if it was direct JSON or salvage)
+        try:
+            json.loads(response_text.strip())
+            parse_stage = "json_ok"
+        except json.JSONDecodeError:
+            # Check if it was extracted JSON
+            first_brace = response_text.find('{')
+            last_brace = response_text.rfind('}')
+            if first_brace != -1 and last_brace != -1:
+                try:
+                    json.loads(response_text[first_brace:last_brace + 1])
+                    parse_stage = "json_extracted_ok"
+                except json.JSONDecodeError:
+                    parse_stage = "plaintext_salvage_ok"
+            else:
+                parse_stage = "plaintext_salvage_ok"
+        
+        # Validate required keys and types
+        required_keys = {
+            "headline": str,
+            "best_move": str,
+            "why_bullets": list,
+            "what_you_could_do_bullets": list,
+            "if_not_try_this_instead_bullets": list,
+            "tips_if_you_play_bullets": list
+        }
+        
+        missing_keys = []
+        for key, expected_type in required_keys.items():
+            if key not in rewritten_data:
+                missing_keys.append(key)
+            elif not isinstance(rewritten_data[key], expected_type):
+                missing_keys.append(f"{key} (wrong type)")
+            elif key == "headline" and (not rewritten_data[key] or not rewritten_data[key].strip()):
+                missing_keys.append(f"{key} (empty)")
+            elif isinstance(rewritten_data[key], list) and len(rewritten_data[key]) == 0:
+                missing_keys.append(f"{key} (empty list)")
+        
+        if missing_keys:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"LLM missing required keys: {missing_keys} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            raise ValueError(f"LLM response missing required keys: {', '.join(missing_keys)}")
+        
+        # Check for blocklisted phrases
+        blocklist = ["Play 18.", "Enjoy your round.", "Conditions are suitable today."]
+        blocklist_found = []
+        for phrase in blocklist:
+            if phrase in response_text:
+                blocklist_found.append(phrase)
+        
+        if blocklist_found:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"LLM blocklist violation: {blocklist_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+            raise ValueError(f"LLM output contains blocklisted phrases: {', '.join(blocklist_found)}")
+        
+        # Check for dash characters
+        dash_chars = ["—", "–", " - "]
+        dash_found = []
+        for dash in dash_chars:
+            if dash in response_text:
+                dash_found.append(dash)
+        
+        if dash_found:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"LLM dash violation: {dash_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+            raise ValueError(f"LLM output contains dash characters: {', '.join(dash_found)}")
+        
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        
+        # Add timing and parse info to response metadata (for debug tracking)
         rewritten_data["_llm_metadata"] = {
             "duration_ms": elapsed_ms,
             "timeout_seconds": llm_timeout_seconds,
-            "model": llm_model
+            "model": llm_model,
+            "parse_stage": parse_stage,
+            "raw_preview": llm_raw_preview,
+            "missing_keys": missing_keys if missing_keys else []
         }
         
         return rewritten_data
@@ -5935,6 +6105,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     copy_debug["llm_duration_ms"] = copy_errors.get("duration_ms")
     copy_debug["llm_timeout_seconds"] = copy_errors.get("timeout_seconds")
     copy_debug["llm_model"] = copy_errors.get("model")
+    copy_debug["llm_parse_stage"] = copy_errors.get("parse_stage")
+    copy_debug["llm_missing_keys"] = copy_errors.get("missing_keys", [])
     
     # Log result
     if copy_source == "llm":
@@ -6061,7 +6233,10 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # Render as HTML
     # Render as HTML - clean each bullet before rendering
-    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{clean_copy_text(bullet)}</li>' for bullet in why_bullets_final]) + '</ul>'
+    # Render as HTML - clean each bullet before rendering
+    # Final safety pass: remove any remaining dashes
+    why_bullets_cleaned = [clean_copy_text(bullet).replace("—", ". ").replace("–", ". ") for bullet in why_bullets_final]
+    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets_cleaned]) + '</ul>'
     
     # Add exposure/drainage advice to "What to do" if it suggests range/short game (max 1 bullet)
     if exposure_drainage_advice and ("range" in exposure_drainage_advice.lower() or "short game" in exposure_drainage_advice.lower()):
@@ -6085,7 +6260,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # FINAL ASSIGNMENT: Only ONE place where what_bullets_html is set
     # Render as HTML - clean each bullet before rendering
-    what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{clean_copy_text(bullet)}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
+    # Final safety pass: remove any remaining dashes
+    what_bullets_cleaned = [clean_copy_text(bullet).replace("—", ". ").replace("–", ". ") for bullet in what_to_do_bullets_final]
+    what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in what_bullets_cleaned]) + '</ul>'
     
     # FINAL_COPY logging - log exactly what will be rendered
     logger.info(f"FINAL_COPY: request_id={request_id} source={copy_debug['copy_source']} tier={playability_tier} llm_effective={llm_effective_enabled} "
@@ -6120,8 +6297,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "playability_tier": playability_tier,
         "suggested_plan": suggested_plan,
         "overall_score": overall_score,
-        "banner_summary": clean_copy_text(banner_summary) if banner_summary else "",
-        "trade_off_sentence": clean_copy_text(trade_off_sentence) if trade_off_sentence else "",
+        "banner_summary": clean_copy_text(banner_summary).replace("—", ". ").replace("–", ". ") if banner_summary else "",
+        "trade_off_sentence": clean_copy_text(trade_off_sentence).replace("—", ". ").replace("–", ". ") if trade_off_sentence else "",
         "why_bullets_html": why_bullets_html,
         "what_bullets_html": what_bullets_html,
         "what_section_title": what_section_title,
@@ -6195,7 +6372,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 instead_activities = ["9 holes", "Range session"]
         
         # Clean each activity before joining (template requirement: 1 bullet)
+        # Final safety pass: remove any remaining dashes
         instead_suggestions = clean_copy_text(instead_activities[0]) if instead_activities else "Range session or short game practice."
+        instead_suggestions = instead_suggestions.replace("—", ". ").replace("–", ". ")
         
         # For Challenging/Rough: show "And if you did decide to play..." tips
         # For Great/Decent: soften to optional alternatives
@@ -6227,7 +6406,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             """
         else:
             # For Great/Decent: softer optional wording
-            optional_body = f"If you're short on time: {clean_copy_text(instead_suggestions)}."
+            # Final safety pass: remove any remaining dashes
+            cleaned_suggestions = clean_copy_text(instead_suggestions).replace("—", ". ").replace("–", ". ")
+            optional_body = f"If you're short on time: {cleaned_suggestions}."
             
             instead_section_html = f"""
                         <div class="card card-instead">
@@ -6338,11 +6519,14 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             tier: {playability_tier}<br>
             llm_effective: {llm_effective_enabled}<br>
             llm_attempted: {copy_debug.get('llm_attempted', False)}<br>
+            {f'llm_parse_stage: {copy_debug.get("llm_parse_stage")}<br>' if copy_debug.get('llm_parse_stage') else ''}
             {f'llm_duration_ms: {copy_debug.get("llm_duration_ms")}<br>' if copy_debug.get('llm_duration_ms') is not None else ''}
             {f'llm_timeout_seconds: {copy_debug.get("llm_timeout_seconds")}<br>' if copy_debug.get('llm_timeout_seconds') is not None else ''}
             {f'llm_model: {copy_debug.get("llm_model")}<br>' if copy_debug.get('llm_model') else ''}
             {f'llm_error_type: {copy_debug.get("llm_error_type")}<br>' if copy_debug.get('llm_error_type') else ''}
             {f'llm_error_message: {copy_debug.get("llm_error_message")}<br>' if copy_debug.get('llm_error_message') else ''}
+            {f'llm_missing_keys: {copy_debug.get("llm_missing_keys")}<br>' if copy_debug.get('llm_missing_keys') else ''}
+            {f'llm_raw_preview: {copy_debug.get("llm_raw_preview")}<br>' if copy_debug.get('llm_raw_preview') else ''}
             <br>
             <strong>Scoring Model Outputs:</strong><br>
             Overall Score: {overall_score}/100<br>
