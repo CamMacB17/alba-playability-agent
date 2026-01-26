@@ -5376,6 +5376,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     what_you_could_do_bullets = what_you_could_do_bullets[:3]
     
     # Generate instead_activities (deterministic)
+    # Always populate to ensure panel never disappears
     instead_activities = []
     if playability_tier == "Challenging":
         instead_activities = ["9 holes", "Range session", "Short game practice"]
@@ -5383,6 +5384,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         instead_activities = ["Range session", "Short game practice", "Putting green", "Simulator"]
     elif playability_tier == "Decent":
         instead_activities = ["9 holes", "Range session"]  # Optional for Decent
+    elif playability_tier == "Great":
+        instead_activities = ["9 holes", "Range session"]  # Optional for Great
     
     # Generate if_you_play_tips (deterministic)
     if_you_play_tips = []
@@ -5645,46 +5648,80 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         </div>
     """
     
-    # "If not, do this instead" section for Challenging or Rough tiers
-    # REQUIRED: This section MUST NEVER disappear for Challenging/Rough tiers
-    if playability_tier in ["Challenging", "Rough"]:
-        # Ensure instead_activities exists (required for Challenging/Rough)
+    # "If not, do this instead" section
+    # REQUIRED: This section MUST NEVER disappear
+    # Show if: tier is Challenging/Rough OR instead_activities list exists
+    should_show_instead_section = (
+        playability_tier in ["Challenging", "Rough"] or 
+        (instead_activities and len(instead_activities) > 0)
+    )
+    
+    if should_show_instead_section:
+        # Ensure instead_activities exists
         if not instead_activities or len(instead_activities) == 0:
-            # Fallback to defaults if somehow missing
+            # Fallback to defaults based on tier
             if playability_tier == "Challenging":
                 instead_activities = ["9 holes", "Range session", "Short game practice"]
-            else:  # Rough
+            elif playability_tier == "Rough":
                 instead_activities = ["Range session", "Short game practice", "Putting green", "Simulator"]
+            else:
+                # For Great/Decent, provide optional alternatives
+                instead_activities = ["9 holes", "Range session"]
         
         instead_suggestions = ", ".join(instead_activities)
         
-        # Ensure if_you_play_tips exists (required for Challenging/Rough)
-        if not if_you_play_tips or len(if_you_play_tips) == 0:
-            # Fallback to defaults if somehow missing
-            if_you_play_tips = [
-                "Waterproofs and spare glove",
-                "Take one more club and swing smooth",
-                "Flight it down in the wind",
-                "Adjust expectations and focus on technique"
-            ]
-        
-        # Generate bullets from if_you_play_tips
-        tips_bullets_html = "".join([f"<li>{tip}</li>" for tip in if_you_play_tips])
-        
+        # For Challenging/Rough: show "And if you did decide to play..." tips
+        # For Great/Decent: soften to optional alternatives
+        if playability_tier in ["Challenging", "Rough"]:
+            # Ensure if_you_play_tips exists (required for Challenging/Rough)
+            if not if_you_play_tips or len(if_you_play_tips) == 0:
+                # Fallback to defaults if somehow missing
+                if_you_play_tips = [
+                    "Waterproofs and spare glove",
+                    "Take one more club and swing smooth",
+                    "Flight it down in the wind",
+                    "Adjust expectations and focus on technique"
+                ]
+            
+            # Generate bullets from if_you_play_tips
+            tips_bullets_html = "".join([f"<li>{tip}</li>" for tip in if_you_play_tips])
+            
+            instead_section_html = f"""
+                        <div class="card card-instead">
+                            <div class="card-title">If not, try this instead</div>
+                            <div class="card-content">
+                                <div class="instead-suggestions">{instead_suggestions}</div>
+                                <div class="instead-subtitle">And if you did decide to play...</div>
+                                <ul class="instead-bullets">
+                                    {tips_bullets_html}
+                                </ul>
+                            </div>
+                        </div>
+            """
+        else:
+            # For Great/Decent: softer optional wording
+            optional_body = f"If you're short on time: {instead_suggestions}."
+            
+            instead_section_html = f"""
+                        <div class="card card-instead">
+                            <div class="card-title">If not, try this instead</div>
+                            <div class="card-content">
+                                <div class="instead-suggestions">{optional_body}</div>
+                            </div>
+                        </div>
+            """
+    else:
+        # Fallback: should never happen, but ensure panel always shows
+        instead_activities = ["9 holes", "Range session"]
+        optional_body = f"If you're short on time: {', '.join(instead_activities)}."
         instead_section_html = f"""
                     <div class="card card-instead">
                         <div class="card-title">If not, try this instead</div>
                         <div class="card-content">
-                            <div class="instead-suggestions">{instead_suggestions}</div>
-                            <div class="instead-subtitle">And if you did decide to play...</div>
-                            <ul class="instead-bullets">
-                                {tips_bullets_html}
-                            </ul>
+                            <div class="instead-suggestions">{optional_body}</div>
                         </div>
                     </div>
         """
-    else:
-        instead_section_html = ""
     
     # Feedback panel - rendered outside banner, below it
     feedback_panel_html = f"""
