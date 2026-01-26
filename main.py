@@ -1461,15 +1461,56 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
             result["if_you_play_tips"].append("Adjust expectations and focus on technique")
         result["if_you_play_tips"] = result["if_you_play_tips"][:4]
     
+    # Ensure trade_off_sentence exists (empty string for deterministic, LLM will populate)
+    if "trade_off_sentence" not in result:
+        result["trade_off_sentence"] = ""
+    
     return result
 
 
 def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[str, Any]) -> Tuple[bool, str]:
     """
     Strictly validate LLM output matches deterministic payload structure.
+    Includes hard blocklist for dismissive/generic phrases.
     
     Returns: (is_valid: bool, reason: str)
     """
+    # Hard blocklist: reject if output contains dismissive/generic phrases
+    blocklist_phrases = [
+        "Play 18.",
+        "Enjoy your round.",
+        "Conditions are suitable today."
+    ]
+    
+    # Check all text fields for blocklist phrases
+    text_fields_to_check = [
+        ("banner_summary", llm_output.get("banner_summary", "")),
+        ("best_move", llm_output.get("best_move", "")),
+    ]
+    
+    # Check why_bullets
+    why_bullets = llm_output.get("why_bullets", [])
+    if isinstance(why_bullets, list):
+        for i, bullet in enumerate(why_bullets):
+            text_fields_to_check.append((f"why_bullets[{i}]", bullet))
+    
+    # Check what_you_could_do_bullets
+    what_bullets = llm_output.get("what_you_could_do_bullets", [])
+    if isinstance(what_bullets, list):
+        for i, bullet in enumerate(what_bullets):
+            text_fields_to_check.append((f"what_you_could_do_bullets[{i}]", bullet))
+    
+    # Check trade_off_sentence if present
+    if "trade_off_sentence" in llm_output:
+        text_fields_to_check.append(("trade_off_sentence", llm_output["trade_off_sentence"]))
+    
+    # Check all text fields against blocklist
+    for field_name, field_value in text_fields_to_check:
+        if isinstance(field_value, str):
+            for phrase in blocklist_phrases:
+                if phrase.lower() in field_value.lower():
+                    return False, f"Blocklist violation: '{phrase}' found in {field_name}"
+    
     # Check all required keys exist
     required_keys = ["playability_tier", "best_move", "banner_summary", "why_bullets", "what_you_could_do_bullets"]
     for key in required_keys:
@@ -1484,15 +1525,48 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     if llm_output["best_move"] != deterministic_payload["best_move"]:
         return False, f"best_move mismatch: expected '{deterministic_payload['best_move']}', got '{llm_output['best_move']}'"
     
-    # Validate banner_summary is a non-empty string
+    # Validate banner_summary is a non-empty string and not flat/generic
     if not isinstance(llm_output["banner_summary"], str) or not llm_output["banner_summary"].strip():
         return False, "banner_summary must be a non-empty string"
     
-    # Validate list lengths (allow +/-1 but never empty)
-    list_checks = [
-        ("why_bullets", deterministic_payload["why_bullets"]),
-        ("what_you_could_do_bullets", deterministic_payload["what_you_could_do_bullets"]),
-    ]
+    # Check banner_summary is useful and specific (not flat)
+    banner_lower = llm_output["banner_summary"].lower()
+    flat_phrases = ["conditions are", "weather is", "it's", "today is"]
+    if all(phrase not in banner_lower for phrase in ["will", "cost", "kill", "affect", "likely", "tends", "probably"]):
+        # Check if it's too generic
+        if len(banner_lower.split()) < 8:  # Very short sentences are likely flat
+            return False, "banner_summary is too flat/generic - must be useful and specific"
+    
+    # Validate why_bullets: MUST have exactly 3 items (weather/ground first, then course, handicap only if relevant)
+    if "why_bullets" not in llm_output:
+        return False, "Missing why_bullets"
+    if not isinstance(llm_output["why_bullets"], list):
+        return False, "why_bullets is not a list"
+    if len(llm_output["why_bullets"]) != 3:
+        return False, f"why_bullets must have exactly 3 items, got {len(llm_output['why_bullets'])}"
+    for i, bullet in enumerate(llm_output["why_bullets"]):
+        if not isinstance(bullet, str) or not bullet.strip():
+            return False, f"why_bullets[{i}] is not a non-empty string"
+    
+    # Validate what_you_could_do_bullets: MUST have exactly 2 items (actionable, not generic)
+    if "what_you_could_do_bullets" not in llm_output:
+        return False, "Missing what_you_could_do_bullets"
+    if not isinstance(llm_output["what_you_could_do_bullets"], list):
+        return False, "what_you_could_do_bullets is not a list"
+    if len(llm_output["what_you_could_do_bullets"]) != 2:
+        return False, f"what_you_could_do_bullets must have exactly 2 items, got {len(llm_output['what_you_could_do_bullets'])}"
+    for i, bullet in enumerate(llm_output["what_you_could_do_bullets"]):
+        if not isinstance(bullet, str) or not bullet.strip():
+            return False, f"what_you_could_do_bullets[{i}] is not a non-empty string"
+    
+    # Validate trade_off_sentence: MUST be present and non-empty
+    if "trade_off_sentence" not in llm_output:
+        return False, "Missing trade_off_sentence"
+    if not isinstance(llm_output["trade_off_sentence"], str) or not llm_output["trade_off_sentence"].strip():
+        return False, "trade_off_sentence must be a non-empty string"
+    
+    # Validate list lengths for other lists (allow +/-1 but never empty)
+    list_checks = []
     
     # Add optional lists if they exist in deterministic payload
     if "instead_activities" in deterministic_payload:
@@ -3597,22 +3671,37 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     # Extract tier_reasons for banner_summary generation
     tier_reasons = deterministic_payload.get("tier_reasons", [])
     
+    # Extract context for handicap weighting rules
+    handicap = deterministic_payload.get("handicap")
+    course_name = deterministic_payload.get("course_name", "")
+    course_difficulty = None  # Will be extracted if available
+    
     prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
 
 VOICE & STYLE RULES:
 1. Friendly, calm "pro shop" person - like chatting with someone who knows golf
-2. Explain trade-offs - help people understand what they're dealing with
+2. Explain trade-offs - help people understand what they're dealing with (e.g., "You'll get more out of X than slogging through Y.")
 3. Sound human - conversational, not robotic
 4. Never dismissive - never say "go away" or make people feel unwelcome
-5. Never robotic commands - avoid "Play 18." "Enjoy your round." "Go play."
+5. Never robotic commands - avoid "Play 18." "Enjoy your round." "Go play." "Conditions are suitable today."
 6. Each bullet should feel like a helpful tip, not an order
 7. Use UK tone and spelling (colour, realise, etc.)
 8. Avoid judgement language about handicap - handicap is just context, not a limitation
-9. Handicap is only referenced when conditions meaningfully amplify difficulty - otherwise keep it light
-10. Never claim certainty - use "likely", "tends to", "you'll probably", "might", "could"
-11. "best_move" should be phrased as a suggestion, e.g. "Best move: 9 holes or a focused range session"
-    - NEVER: "Play 18." "Go play." "Enjoy your round."
+9. Never claim certainty - use "likely", "tends to", "you'll probably", "might", "could"
+10. "best_move" should be phrased as a suggestion, e.g. "Best move: 9 holes or a focused range session"
+    - NEVER: "Play 18." "Go play." "Enjoy your round." "Conditions are suitable today."
     - DO: "Best move: 9 holes or a focused range session" or "Best move: probably worth waiting for better conditions"
+
+HANDICAP WEIGHTING RULES:
+- Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard
+- If handicap <= 6, never recommend skipping unless tier is Rough AND wind/rain thresholds are extreme
+- Keep handicap references light unless conditions meaningfully amplify difficulty
+
+REQUIRED OUTPUT STRUCTURE:
+- banner_summary: 1 sentence summary in friendly tone explaining WHY the tier is what it is (must be useful and specific, not flat)
+- why_bullets: Exactly 3 bullets (weather/ground first, then course, handicap only if relevant per rules above)
+- what_you_could_do_bullets: Exactly 2 bullets (actionable, not generic)
+- trade_off_sentence: 1 sentence explaining a trade-off (e.g., "You'll get more out of X than slogging through Y.")
 
 CRITICAL STRUCTURE RULES:
 1. DO NOT change playability_tier or best_move - return them EXACTLY as provided
@@ -3626,22 +3715,39 @@ INPUT DATA (deterministic output):
 {json.dumps(deterministic_payload, indent=2)}
 
 TASK:
-Rewrite ONLY the text content with friendly, human, pro-shop voice:
-- banner_summary: Generate a joined-up one-liner (1 sentence) that summarises WHY the tier is what it is. Example: "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring."
-- why_bullets: rewrite each bullet as a helpful tip (keep same count)
-- what_you_could_do_bullets: rewrite each bullet as a helpful tip (keep same count)
-- instead_activities: rewrite each activity text (keep same count, required for Challenging/Rough)
-- if_you_play_tips: rewrite each tip text (keep same count, required for Challenging/Rough)
-- reasons: rewrite "impact" text in each reason (keep same count and structure)
-- recommendations: rewrite "reason" text in each recommendation (keep same count and structure)
+Rewrite ONLY the text content with friendly, human, pro-shop voice. You MUST generate exactly the required structure:
+
+1. banner_summary: Generate a joined-up one-liner (1 sentence) that summarises WHY the tier is what it is. Must be useful and specific, not flat. Example: "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring."
+
+2. why_bullets: Generate exactly 3 bullets:
+   - Bullet 1: Weather/ground conditions (primary driver)
+   - Bullet 2: Course factors (difficulty, busyness, etc.)
+   - Bullet 3: Handicap only if tier is Challenging/Rough OR course difficulty is Hard (otherwise use another course factor)
+   Each bullet should feel like a helpful tip explaining what's happening and why it matters.
+
+3. what_you_could_do_bullets: Generate exactly 2 bullets (actionable, not generic):
+   - Focus on what they can actually do
+   - Avoid generic phrases like "Enjoy your round"
+   - Be specific about actions
+
+4. trade_off_sentence: Generate 1 sentence explaining a trade-off (e.g., "You'll get more out of a focused range session than slogging through 18 holes in these conditions.")
+
+5. instead_activities: rewrite each activity text (keep same count, required for Challenging/Rough)
+
+6. if_you_play_tips: rewrite each tip text (keep same count, required for Challenging/Rough)
+
+7. reasons: rewrite "impact" text in each reason (keep same count and structure)
+
+8. recommendations: rewrite "reason" text in each recommendation (keep same count and structure)
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
     "playability_tier": "{playability_tier}",
     "best_move": "{best_move}",
-    "banner_summary": "[joined-up one-liner explaining WHY the tier is what it is - 1 sentence]",
-    "why_bullets": ["[rewritten bullet 1 - helpful tip]", "[rewritten bullet 2 - helpful tip]", ...],
-    "what_you_could_do_bullets": ["[rewritten bullet 1 - helpful tip]", "[rewritten bullet 2 - helpful tip]", ...],
+    "banner_summary": "[1 sentence summary in friendly tone - useful and specific, not flat]",
+    "why_bullets": ["[bullet 1 - weather/ground]", "[bullet 2 - course]", "[bullet 3 - handicap only if relevant]"],
+    "what_you_could_do_bullets": ["[bullet 1 - actionable]", "[bullet 2 - actionable]"],
+    "trade_off_sentence": "[1 sentence explaining trade-off, e.g. 'You'll get more out of X than slogging through Y.']",
     "instead_activities": ["[rewritten activity 1]", "[rewritten activity 2]", ...],
     "if_you_play_tips": ["[rewritten tip 1]", "[rewritten tip 2]", ...],
     "reasons": [
@@ -3662,12 +3768,19 @@ REQUIRED OUTPUT FORMAT (JSON):
     ]
 }}
 
+HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
+- "Play 18."
+- "Enjoy your round."
+- "Conditions are suitable today."
+If output contains any of these, it will be rejected and deterministic templates used instead.
+
 VALIDATION:
 - playability_tier MUST be exactly "{playability_tier}"
 - best_move MUST be exactly "{best_move}"
-- banner_summary MUST be a single sentence (non-empty string)
-- why_bullets MUST have exactly {len(why_bullets)} items
-- what_you_could_do_bullets MUST have exactly {len(what_you_could_do_bullets)} items
+- banner_summary MUST be a single sentence (non-empty string, useful and specific, not flat)
+- why_bullets MUST have exactly 3 items (weather/ground first, then course, handicap only if relevant)
+- what_you_could_do_bullets MUST have exactly 2 items (actionable, not generic)
+- trade_off_sentence MUST be present (1 sentence explaining trade-off)
 - instead_activities MUST have exactly {len(instead_activities)} items
 - if_you_play_tips MUST have exactly {len(if_you_play_tips)} items
 - reasons MUST have exactly {len(reasons)} items
@@ -3688,7 +3801,7 @@ Return ONLY valid JSON matching the structure above."""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands. Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
+                        "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands like 'Play 18.' 'Enjoy your round.' 'Conditions are suitable today.' Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard. If handicap <= 6, never recommend skipping unless tier is Rough AND conditions are extreme. Banner summary must be useful and specific, not flat. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
                     },
                     {"role": "user", "content": prompt}
                 ],
@@ -5407,7 +5520,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "if_you_play_tips": if_you_play_tips,
         "reasons": reasons,
         "recommendations": recommendations,
-        "tier_reasons": tier_reasons
+        "tier_reasons": tier_reasons,
+        "trade_off_sentence": ""  # LLM will generate this, empty for deterministic fallback
     }
     
     # Ensure all required keys exist and validate values
@@ -5454,8 +5568,21 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     playability_tier = final_payload["playability_tier"]
     best_move = final_payload["best_move"]
     banner_summary = final_payload.get("banner_summary", "")  # LLM-generated or empty
-    why_bullets = final_payload["why_bullets"]
-    what_you_could_do_bullets = final_payload["what_you_could_do_bullets"]
+    trade_off_sentence = final_payload.get("trade_off_sentence", "")  # LLM-generated trade-off sentence
+    
+    # Use LLM-generated counts if available (3 why, 2 what), otherwise use deterministic
+    why_bullets = final_payload.get("why_bullets", [])
+    what_you_could_do_bullets = final_payload.get("what_you_could_do_bullets", [])
+    
+    # If LLM rewrite succeeded, use LLM-generated counts (3 why, 2 what)
+    # Otherwise, use deterministic bullets (may have different count)
+    if llm_rewrite_succeeded:
+        # LLM should have generated exactly 3 why_bullets and 2 what_you_could_do_bullets
+        if len(why_bullets) != 3:
+            logger.warning(f"LLM rewrite succeeded but why_bullets has {len(why_bullets)} items (expected 3), using as-is")
+        if len(what_you_could_do_bullets) != 2:
+            logger.warning(f"LLM rewrite succeeded but what_you_could_do_bullets has {len(what_you_could_do_bullets)} items (expected 2), using as-is")
+    
     instead_activities = final_payload.get("instead_activities", [])
     if_you_play_tips = final_payload.get("if_you_play_tips", [])
     reasons = final_payload.get("reasons", [])
@@ -5598,6 +5725,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "suggested_plan": suggested_plan,
         "overall_score": overall_score,
         "banner_summary": banner_summary,
+        "trade_off_sentence": trade_off_sentence,
         "why_bullets_html": why_bullets_html,
         "what_bullets_html": what_bullets_html,
         "what_section_title": what_section_title,
@@ -6497,6 +6625,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                         <div class="card-title">What you could do</div>
                         <div class="card-content">
                             {view_model['what_bullets_html']}
+                            {f'<div class="trade-off-sentence">{trade_off_sentence}</div>' if trade_off_sentence else ''}
                         </div>
                     </div>
                     
