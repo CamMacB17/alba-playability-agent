@@ -1414,6 +1414,82 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[str, Any]) -> Tuple[bool, str]:
+    """
+    Strictly validate LLM output matches deterministic payload structure.
+    
+    Returns: (is_valid: bool, reason: str)
+    """
+    # Check all required keys exist
+    required_keys = ["playability_tier", "best_move", "why_bullets", "what_you_could_do_bullets"]
+    for key in required_keys:
+        if key not in llm_output:
+            return False, f"Missing required key: {key}"
+    
+    # Validate tier matches exactly
+    if llm_output["playability_tier"] != deterministic_payload["playability_tier"]:
+        return False, f"Tier mismatch: expected '{deterministic_payload['playability_tier']}', got '{llm_output['playability_tier']}'"
+    
+    # Validate best_move matches exactly
+    if llm_output["best_move"] != deterministic_payload["best_move"]:
+        return False, f"best_move mismatch: expected '{deterministic_payload['best_move']}', got '{llm_output['best_move']}'"
+    
+    # Validate list lengths (allow +/-1 but never empty)
+    list_checks = [
+        ("why_bullets", deterministic_payload["why_bullets"]),
+        ("what_you_could_do_bullets", deterministic_payload["what_you_could_do_bullets"]),
+    ]
+    
+    # Add optional lists if they exist in deterministic payload
+    if "instead_activities" in deterministic_payload:
+        list_checks.append(("instead_activities", deterministic_payload["instead_activities"]))
+    if "if_you_play_tips" in deterministic_payload:
+        list_checks.append(("if_you_play_tips", deterministic_payload["if_you_play_tips"]))
+    
+    for key, original_list in list_checks:
+        if key not in llm_output:
+            # If it's required for Challenging/Rough, it must exist
+            if deterministic_payload["playability_tier"] in ["Challenging", "Rough"]:
+                if key in ["instead_activities", "if_you_play_tips"]:
+                    return False, f"Missing required key for Challenging/Rough: {key}"
+            continue
+        
+        llm_list = llm_output[key]
+        if not isinstance(llm_list, list):
+            return False, f"{key} is not a list"
+        
+        original_len = len(original_list)
+        llm_len = len(llm_list)
+        
+        # Never allow empty lists
+        if llm_len == 0 and original_len > 0:
+            return False, f"{key} is empty (expected {original_len} items)"
+        
+        # Allow +/-1 variation but warn if more
+        if abs(llm_len - original_len) > 1:
+            return False, f"{key} length mismatch: expected {original_len}±1, got {llm_len}"
+        
+        # Check all items are non-empty strings
+        for i, item in enumerate(llm_list):
+            if not isinstance(item, str) or not item.strip():
+                return False, f"{key}[{i}] is not a non-empty string"
+    
+    # Validate reasons and recommendations if present
+    if "reasons" in deterministic_payload:
+        if "reasons" not in llm_output:
+            return False, "Missing reasons"
+        if len(llm_output["reasons"]) != len(deterministic_payload["reasons"]):
+            return False, f"reasons length mismatch: expected {len(deterministic_payload['reasons'])}, got {len(llm_output['reasons'])}"
+    
+    if "recommendations" in deterministic_payload:
+        if "recommendations" not in llm_output:
+            return False, "Missing recommendations"
+        if len(llm_output["recommendations"]) != len(deterministic_payload["recommendations"]):
+            return False, f"recommendations length mismatch: expected {len(deterministic_payload['recommendations'])}, got {len(llm_output['recommendations'])}"
+    
+    return True, ""
+
+
 def get_suggested_plan(playability_tier: str) -> str:
     """
     Map playability_tier to suggested plan.
@@ -3285,6 +3361,152 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
     return " ".join(parts)
 
 
+async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], request_id: str = None) -> Dict[str, Any]:
+    """
+    Rewrite assessment copy using LLM for clarity. LLM can ONLY rewrite text, not structure.
+    
+    deterministic_payload: dict containing ALL sections:
+        - playability_tier: str (Great / Decent / Challenging / Rough) - MUST NOT CHANGE
+        - best_move: str - MUST NOT CHANGE
+        - why_bullets: list[str] - rewrite text only, keep same length
+        - what_you_could_do_bullets: list[str] - rewrite text only, keep same length
+        - instead_activities: list[str] - rewrite text only, keep same length (required for Challenging/Rough)
+        - if_you_play_tips: list[str] - rewrite text only, keep same length (required for Challenging/Rough)
+        - reasons: list[dict] - rewrite "impact" text only
+        - recommendations: list[dict] - rewrite "reason" text only
+    
+    Returns: dict with SAME SHAPE, rewritten text only
+    Raises exception if API call fails or returns invalid structure.
+    """
+    import json
+    
+    # Read OPENAI_API_KEY from environment
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY missing")
+    
+    # Import OpenAI
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ValueError("OpenAI package not installed")
+    
+    client = OpenAI(api_key=api_key)
+    
+    # Extract deterministic data
+    playability_tier = deterministic_payload["playability_tier"]
+    best_move = deterministic_payload["best_move"]
+    why_bullets = deterministic_payload["why_bullets"]
+    what_you_could_do_bullets = deterministic_payload["what_you_could_do_bullets"]
+    instead_activities = deterministic_payload.get("instead_activities", [])
+    if_you_play_tips = deterministic_payload.get("if_you_play_tips", [])
+    reasons = deterministic_payload.get("reasons", [])
+    recommendations = deterministic_payload.get("recommendations", [])
+    
+    prompt = f"""You are rewriting golf course assessment text for clarity and simplicity. You MUST follow these rules:
+
+CRITICAL RULES:
+1. DO NOT change playability_tier or best_move - return them EXACTLY as provided
+2. DO NOT change the number of items in any list
+3. DO NOT remove any sections
+4. DO NOT add new sections
+5. ONLY rewrite the text/copy for clarity and simplicity
+6. Keep British English
+7. Use simple, clear language
+
+INPUT DATA (deterministic output):
+{json.dumps(deterministic_payload, indent=2)}
+
+TASK:
+Rewrite ONLY the text content:
+- why_bullets: rewrite each bullet point text (keep same count)
+- what_you_could_do_bullets: rewrite each bullet point text (keep same count)
+- instead_activities: rewrite each activity text (keep same count, required for Challenging/Rough)
+- if_you_play_tips: rewrite each tip text (keep same count, required for Challenging/Rough)
+- reasons: rewrite "impact" text in each reason (keep same count and structure)
+- recommendations: rewrite "reason" text in each recommendation (keep same count and structure)
+
+REQUIRED OUTPUT FORMAT (JSON):
+{{
+    "playability_tier": "{playability_tier}",
+    "best_move": "{best_move}",
+    "why_bullets": ["[rewritten bullet 1]", "[rewritten bullet 2]", ...],
+    "what_you_could_do_bullets": ["[rewritten bullet 1]", "[rewritten bullet 2]", ...],
+    "instead_activities": ["[rewritten activity 1]", "[rewritten activity 2]", ...],
+    "if_you_play_tips": ["[rewritten tip 1]", "[rewritten tip 2]", ...],
+    "reasons": [
+        {{
+            "factor": "[keep original]",
+            "condition": "[keep original]",
+            "threshold": "[keep original]",
+            "impact": "[rewritten impact text]"
+        }},
+        ...
+    ],
+    "recommendations": [
+        {{
+            "action": "[keep original]",
+            "reason": "[rewritten reason text]"
+        }},
+        ...
+    ]
+}}
+
+VALIDATION:
+- playability_tier MUST be exactly "{playability_tier}"
+- best_move MUST be exactly "{best_move}"
+- why_bullets MUST have exactly {len(why_bullets)} items
+- what_you_could_do_bullets MUST have exactly {len(what_you_could_do_bullets)} items
+- instead_activities MUST have exactly {len(instead_activities)} items
+- if_you_play_tips MUST have exactly {len(if_you_play_tips)} items
+- reasons MUST have exactly {len(reasons)} items
+- recommendations MUST have exactly {len(recommendations)} items
+- All list items must be non-empty strings
+- Do not change any structure, only rewrite text
+
+Return ONLY valid JSON matching the structure above."""
+
+    request_id_str = f" request_id={request_id}" if request_id else ""
+    logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
+    
+    try:
+        response = await asyncio.wait_for(
+            asyncio.to_thread(
+                client.chat.completions.create,
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a text editor rewriting golf course assessment text for clarity. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided. Do not invent new content or change structure."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1200,
+                temperature=0.2,
+                response_format={"type": "json_object"}
+            ),
+            timeout=10.0
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        # Parse JSON response
+        try:
+            rewritten_data = json.loads(response_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"LLM returned invalid JSON: {e}")
+            raise ValueError("LLM returned invalid JSON structure")
+        
+        return rewritten_data
+        
+    except asyncio.TimeoutError:
+        logger.error(f"LLM request timed out{request_id_str}")
+        raise ValueError("LLM request timed out")
+    except Exception as e:
+        logger.error(f"LLM API error{request_id_str}: {str(e)}")
+        raise
+
+
 async def rewrite_reasons_and_recommendations_llm(deterministic_data, request_id: str = None):
     """
     Rewrite deterministic reasons and recommendations using LLM for clarity.
@@ -4959,8 +5181,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             "Adjust expectations and focus on technique"
         ]
     
-    # Build deterministic result dict
-    deterministic_result = {
+    # Build deterministic payload dict with ALL sections
+    deterministic_payload = {
         "playability_tier": playability_tier,
         "best_move": best_move,
         "why_bullets": why_bullets,
@@ -4973,55 +5195,55 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     }
     
     # Ensure all required keys exist and validate values
-    deterministic_result = ensure_assessment_defaults(deterministic_result)
-    
-    # Extract validated values
-    playability_tier = deterministic_result["playability_tier"]
-    best_move = deterministic_result["best_move"]
-    why_bullets = deterministic_result["why_bullets"]
-    what_you_could_do_bullets = deterministic_result["what_you_could_do_bullets"]
-    instead_activities = deterministic_result["instead_activities"]
-    if_you_play_tips = deterministic_result["if_you_play_tips"]
-    reasons = deterministic_result["reasons"]
-    recommendations = deterministic_result["recommendations"]
-    tier_reasons = deterministic_result["tier_reasons"]
+    deterministic_payload = ensure_assessment_defaults(deterministic_payload)
     
     # ============================================================================
     # ATTEMPT LLM REWRITING (only after deterministic values exist)
+    # LLM can ONLY rewrite copy/text, not structure
     # ============================================================================
+    final_payload = deterministic_payload.copy()  # Start with deterministic
     llm_rewrite_succeeded = False
     llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
     
     if openai_client:
         try:
-            deterministic_data = {
-                "reasons": reasons,
-                "recommendations": recommendations,
-                "playability_tier": playability_tier,
-                "course_name": course,
-                "handicap": handicap
-            }
-            rewritten_data = await rewrite_reasons_and_recommendations_llm(deterministic_data, request_id)
+            # Add context for LLM
+            deterministic_payload_with_context = deterministic_payload.copy()
+            deterministic_payload_with_context["course_name"] = course
+            deterministic_payload_with_context["handicap"] = handicap
             
-            # Validate LLM output before using it
-            if rewritten_data and isinstance(rewritten_data, dict):
-                # Validate reasons
-                if "reasons" in rewritten_data and isinstance(rewritten_data["reasons"], list):
-                    reasons = rewritten_data["reasons"]
-                # Validate recommendations
-                if "recommendations" in rewritten_data and isinstance(rewritten_data["recommendations"], list):
-                    recommendations = rewritten_data["recommendations"]
-                # Note: playability_tier is NOT updated from LLM - keep deterministic value
-                
+            # Call LLM to rewrite copy only
+            llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
+            
+            # Strictly validate LLM output
+            is_valid, validation_reason = validate_llm_output(llm_output, deterministic_payload)
+            
+            if is_valid:
+                # Use LLM output (it has rewritten copy but same structure)
+                final_payload = llm_output
+                # Ensure tier_reasons is preserved (not rewritten by LLM)
+                final_payload["tier_reasons"] = deterministic_payload["tier_reasons"]
                 llm_rewrite_succeeded = True
-                logger.info(f"LLM rewrite succeeded for reasons/recommendations")
+                logger.info(f"LLM_OK: request_id={request_id}")
             else:
-                raise ValueError("Invalid LLM output format")
+                # Discard LLM output, use deterministic
+                logger.warning(f"LLM_DISCARDED: request_id={request_id} reason={validation_reason}")
+                
         except Exception as e:
             # Fallback gracefully to deterministic on any error (don't leak secrets)
-            logger.error(f"LLM_FAIL: request_id={request_id} error={str(e)}")
-            # reasons and recommendations remain as deterministic versions
-            # playability_tier remains as deterministic value
+            logger.error(f"LLM_FAIL: request_id={request_id} reason={str(e)}")
+            # final_payload remains as deterministic_payload
+    
+    # Extract final values from final_payload (deterministic or LLM-rewritten)
+    playability_tier = final_payload["playability_tier"]
+    best_move = final_payload["best_move"]
+    why_bullets = final_payload["why_bullets"]
+    what_you_could_do_bullets = final_payload["what_you_could_do_bullets"]
+    instead_activities = final_payload.get("instead_activities", [])
+    if_you_play_tips = final_payload.get("if_you_play_tips", [])
+    reasons = final_payload.get("reasons", [])
+    recommendations = final_payload.get("recommendations", [])
+    tier_reasons = final_payload.get("tier_reasons", [])
     
     # Use validated deterministic values (already computed above)
     # All deterministic values are now set and validated
@@ -5208,17 +5430,30 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     """
     
     # "If not, do this instead" section for Challenging or Rough tiers
-    # Use deterministic instead_activities and if_you_play_tips
+    # REQUIRED: This section MUST NEVER disappear for Challenging/Rough tiers
     if playability_tier in ["Challenging", "Rough"]:
-        instead_suggestions = ", ".join(instead_activities) if instead_activities else "Range session, short game practice"
+        # Ensure instead_activities exists (required for Challenging/Rough)
+        if not instead_activities or len(instead_activities) == 0:
+            # Fallback to defaults if somehow missing
+            if playability_tier == "Challenging":
+                instead_activities = ["9 holes", "Range session", "Short game practice"]
+            else:  # Rough
+                instead_activities = ["Range session", "Short game practice", "Putting green", "Simulator"]
+        
+        instead_suggestions = ", ".join(instead_activities)
+        
+        # Ensure if_you_play_tips exists (required for Challenging/Rough)
+        if not if_you_play_tips or len(if_you_play_tips) == 0:
+            # Fallback to defaults if somehow missing
+            if_you_play_tips = [
+                "Waterproofs and spare glove",
+                "Take one more club and swing smooth",
+                "Flight it down in the wind",
+                "Adjust expectations and focus on technique"
+            ]
         
         # Generate bullets from if_you_play_tips
-        tips_bullets_html = ""
-        if if_you_play_tips:
-            tips_bullets_html = "".join([f"<li>{tip}</li>" for tip in if_you_play_tips])
-        else:
-            # Fallback if tips not generated
-            tips_bullets_html = "<li>Waterproofs and spare glove</li><li>Take one more club and swing smooth</li><li>Flight it down in the wind</li>"
+        tips_bullets_html = "".join([f"<li>{tip}</li>" for tip in if_you_play_tips])
         
         instead_section_html = f"""
                     <div class="card card-instead">
