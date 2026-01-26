@@ -4647,6 +4647,16 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     request_id: unique request identifier for logging
     """
+    # Set safe defaults at the TOP (before any branching)
+    # These ensure the function never fails due to unbound variables
+    playability_tier = "Decent"  # Default tier
+    best_move = "18 holes"  # Default best move
+    why_bullets = ["Conditions are suitable for golf today.", "Weather and ground conditions are manageable."]  # Default why bullets (>= 2 items)
+    what_you_could_do = ["Enjoy your round. Conditions are suitable today."]  # Default what to do (>= 1 item)
+    if_not_try_this_instead = "Range session or short game practice"  # Default alternative
+    but_if_you_did_decide_to_play = ["Plan for 9 holes with adjusted expectations.", "Focus on technique rather than score."]  # Default play advice (>= 2 items)
+    banner_headline_text = f"{day if day else 'Today'}'s Golf Conditions"  # Computed from day
+    
     # Find the course to get coordinates and properties
     course_data = find_course_by_name(course)
     
@@ -4754,6 +4764,28 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     reasons = playability["reasons"]
     factor_scores = playability["factor_scores"]
     
+    # Classify playability tier based ONLY on weather and ground conditions
+    # Extract weather data for tier classification
+    wind_speed_kmh = weather_data.get("wind_speed", 0) if weather_data else 0
+    temp_max = weather_data.get("temperature_max", 15) if weather_data else 15
+    
+    # Get weather_label from weather_info (primary descriptor)
+    weather_label_primary = weather_info.get("weather_label", "Dry")
+    
+    # Classify tier based only on conditions using new signature
+    # This is the PRIMARY source of truth for playability_tier (deterministic path)
+    playability_tier = classify_playability_tier(
+        weather_label_primary,
+        wind_speed_kmh,
+        temp_max,
+        ground_label
+    )
+    
+    # Final guard: ensure playability_tier is always set (should never trigger but protects us)
+    if not playability_tier:
+        playability_tier = "Decent"
+        logger.warning(f"playability_tier was empty, using default 'Decent' (request_id={request_id})")
+    
     # Generate recommendations using two-stage system
     # Stage A: Base recommendation from tier only
     base_recommendation = generate_base_recommendation(playability_tier)
@@ -4773,22 +4805,6 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         daylight_label=daylight_label
     )
     
-    # Classify playability tier based ONLY on weather and ground conditions
-    # Extract weather data for tier classification
-    wind_speed_kmh = weather_data.get("wind_speed", 0) if weather_data else 0
-    temp_max = weather_data.get("temperature_max", 15) if weather_data else 15
-    
-    # Get weather_label from weather_info (primary descriptor)
-    weather_label_primary = weather_info.get("weather_label", "Dry")
-    
-    # Classify tier based only on conditions using new signature
-    playability_tier = classify_playability_tier(
-        weather_label_primary,
-        wind_speed_kmh,
-        temp_max,
-        ground_label
-    )
-    
     # Generate tier reason strings (condition-based only, no handicap)
     # Extract needed values from weather_info and weather_data
     precipitation_label = weather_info.get("precipitation_label", "Dry")
@@ -4805,6 +4821,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     )
     
     # Always try LLM rewrite if available (only rewrites for clarity, doesn't invent)
+    # Wrap LLM generation/parsing/validation in try/except
     llm_rewrite_succeeded = False
     llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
     if openai_client:
@@ -4817,15 +4834,26 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 "handicap": handicap
             }
             rewritten_data = await rewrite_reasons_and_recommendations_llm(deterministic_data, request_id)
-            # Use rewritten versions
-            reasons = rewritten_data["reasons"]
-            recommendations = rewritten_data["recommendations"]
-            llm_rewrite_succeeded = True
-            logger.info(f"LLM rewrite succeeded for reasons/recommendations")
+            
+            # Validate LLM output before using it
+            if rewritten_data and isinstance(rewritten_data, dict):
+                # Validate reasons
+                if "reasons" in rewritten_data and isinstance(rewritten_data["reasons"], list):
+                    reasons = rewritten_data["reasons"]
+                # Validate recommendations
+                if "recommendations" in rewritten_data and isinstance(rewritten_data["recommendations"], list):
+                    recommendations = rewritten_data["recommendations"]
+                # Note: playability_tier is NOT updated from LLM - keep deterministic value
+                
+                llm_rewrite_succeeded = True
+                logger.info(f"LLM rewrite succeeded for reasons/recommendations")
+            else:
+                raise ValueError("Invalid LLM output format")
         except Exception as e:
             # Fallback gracefully to deterministic on any error (don't leak secrets)
-            logger.error(f"LLM rewrite failed, using deterministic: {str(e)}")
+            logger.error(f"LLM_FALLBACK: request_id={request_id} err={str(e)}")
             # reasons and recommendations remain as deterministic versions
+            # playability_tier remains as deterministic value
     
     # Get suggested plan from tier
     suggested_plan = get_suggested_plan(playability_tier)
@@ -4937,6 +4965,10 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # Why section - cap bullets based on golf_experience
     # Beginner: up to 6 total guidance bullets, Regular: 3-4, Confident: max 3
+    # Ensure why_bullets has at least 2 items (use defaults if needed)
+    if len(why_bullets) < 2:
+        why_bullets = why_bullets + why_bullets[:2-len(why_bullets)] if len(why_bullets) > 0 else why_bullets
+    
     max_why_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
     why_bullets_final = why_bullets[:max_why_bullets] if len(why_bullets) >= 3 else why_bullets
     
@@ -4948,6 +4980,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             reasons, handicap, weather_label, ground_label, busyness_label, golf_experience
         )
         why_bullets_final = why_bullets_final[:max_why_bullets]
+        # Ensure still has at least 2 items
+        if len(why_bullets_final) < 2:
+            why_bullets_final = why_bullets_final + why_bullets[:2-len(why_bullets_final)] if len(why_bullets) > 0 else why_bullets
     
     # Add exposure/drainage advice to "Why" if available and not suggesting range (max 1 bullet)
     if exposure_drainage_advice and "range" not in exposure_drainage_advice.lower() and "short game" not in exposure_drainage_advice.lower():
@@ -4965,6 +5000,10 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # What to do instead - cap bullets based on golf_experience
     # Beginner: up to 6 total, Regular: 2-4, Confident: max 3
+    # Ensure what_to_do_bullets has at least 1 item (use defaults if needed)
+    if len(what_to_do_bullets) < 1:
+        what_to_do_bullets = what_you_could_do
+    
     max_what_bullets_final = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
     what_to_do_bullets_final = what_to_do_bullets[:max_what_bullets_final] if len(what_to_do_bullets) >= 2 else what_to_do_bullets
     
@@ -5023,7 +5062,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # Conditions banner with headline, playability tier, and suggested plan
     # Headline: "Today's Golf Conditions" or "Tomorrow's Golf Conditions"
-    banner_headline = f"{day}'s Golf Conditions"
+    # Use banner_headline_text computed at top of function
+    banner_headline = banner_headline_text
     # Primary label: "Playability: <tier>"
     playability_label = f"Playability: {playability_tier}"
     # Secondary label: "Best move: <plan>"
