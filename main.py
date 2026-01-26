@@ -3129,19 +3129,17 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
     Raises exception if API call fails (to be caught by caller).
     
     assessment_data: dict containing:
+        - playability_tier: str (Great/Decent/Challenging/Rough)
+        - primary_recommendation: str (main recommendation text)
+        - weather_summary: str (plain language weather description)
+        - ground_conditions: str (plain language ground description)
+        - course_pressure: str (plain language busyness description)
+        - daylight_summary: str (plain language daylight description)
+        - confidence: str (High/Medium/Low)
+        - handicap_used: bool (whether handicap was used in assessment)
         - course_name: str
         - day: str (Today/Tomorrow)
-        - time_of_day: str
-        - handicap: int
-        - weather_rating: str (Good/Mixed/Poor)
-        - ground_rating: str (Firm/Mixed/Soft/Soggy)
-        - busyness_rating: str (Quiet/Moderate/Busy/Very busy)
-        - suitability_rating: str (Well suited/Not ideal today) - binary decision
-        - price_label: str (Affordable/Mid-range/Expensive)
-        - verdict: str (Play/Don't play)
-        - next_action: str
         - recommended_holes: int (18 or 9)
-        - daylight_label: str (Plenty of light/Tight/Not feasible)
     request_id: unique request identifier for logging
     """
     # Read OPENAI_API_KEY from environment
@@ -3158,123 +3156,60 @@ async def generate_explanation_llm(assessment_data, request_id: str = None):
     # Instantiate client
     client = OpenAI(api_key=api_key)
     
-    # Create structured input as JSON
-    structured_input = {
-        "course_name": assessment_data["course_name"],
-        "day": assessment_data["day"],
-        "time_of_day": assessment_data["time_of_day"],
-        "handicap": assessment_data["handicap"],
-        "weather_rating": assessment_data["weather_rating"],
-        "ground_rating": assessment_data["ground_rating"],
-        "busyness_rating": assessment_data["busyness_rating"],
-        "suitability_rating": assessment_data["suitability_rating"],
-        "price_label": assessment_data["price_label"],
-        "verdict": assessment_data["verdict"],
-        "next_action": assessment_data["next_action"],
-        "recommended_holes": assessment_data.get("recommended_holes"),
-        "daylight_label": assessment_data.get("daylight_label")
-    }
+    # Extract values from assessment_data with defaults
+    playability_tier = assessment_data.get("playability_tier", "Decent")
+    primary_recommendation = assessment_data.get("primary_recommendation", "")
+    weather_summary = assessment_data.get("weather_summary", "")
+    ground_conditions = assessment_data.get("ground_conditions", "")
+    course_pressure = assessment_data.get("course_pressure", "")
+    daylight_summary = assessment_data.get("daylight_summary", "")
+    confidence = assessment_data.get("confidence", "Medium")
+    handicap_used = assessment_data.get("handicap_used", False)
     
-    # Extract key values for prompt
-    user_time_of_day = assessment_data["time_of_day"]
-    user_day = assessment_data["day"]
-    verdict = assessment_data["verdict"]
-    recommended_holes = assessment_data.get("recommended_holes")
-    next_action = assessment_data.get("next_action", "")
-    
-    # Extract values for short descriptions
-    course_name = assessment_data["course_name"]
-    weather_rating = assessment_data["weather_rating"]
-    ground_rating = assessment_data["ground_rating"]
-    busyness_rating = assessment_data["busyness_rating"]
-    daylight_label = assessment_data.get("daylight_label", "")
-    price_label = assessment_data["price_label"]
-    
-    # Build daylight short description
-    daylight_short = ""
-    if recommended_holes:
-        if daylight_label == "Plenty of light":
-            daylight_short = f"{recommended_holes} holes should work fine"
-        elif daylight_label == "Tight":
-            daylight_short = f"{recommended_holes} holes is tight but doable"
-        elif daylight_label == "Not feasible":
-            daylight_short = f"Not enough daylight for {recommended_holes} holes"
-        else:
-            daylight_short = f"{recommended_holes} holes recommended"
-    
-    # Build next action for sentence 3
-    next_step = ""
-    if verdict == "Don't play":
-        # Build data-driven next_step based on conditions
-        if daylight_label == "Not feasible":
-            next_step = "Try booking an earlier tee time tomorrow to ensure you finish in daylight"
-        elif recommended_holes == 9:
-            next_step = f"Consider {recommended_holes} holes instead, or try morning tomorrow when daylight is better"
-        elif not is_weather_favorable(weather_rating):
-            if user_day == "Today":
-                next_step = f"Check tomorrow's forecast for better {weather_rating.lower()} conditions"
-            else:
-                next_step = f"Wait for a day with better weather than {weather_rating.lower()}"
-        elif busyness_rating in ["Busy", "Very busy"]:
-            next_step = f"Try booking at a quieter time, like early morning, when course busyness is typically lower than {busyness_rating.lower()}"
-        else:
-            if user_day == "Today":
-                next_step = "Try morning tomorrow or a quieter course"
-            else:
-                next_step = "Try morning or a quieter course"
-    else:
-        # Use next_action if available, otherwise provide data-driven fallback
-        next_action_value = assessment_data.get("next_action", "")
-        if next_action_value:
-            next_step = next_action_value
-        else:
-            # Fallback: reference the conditions that make it good
-            if is_weather_favorable(weather_rating) and busyness_rating in ["Quiet", "Moderate"]:
-                next_step = f"With {weather_rating.lower()} weather and {busyness_rating.lower()} course conditions, you should have a good round"
-            elif is_weather_favorable(weather_rating):
-                next_step = f"With {weather_rating.lower()} weather, conditions are favourable for play"
-            else:
-                next_step = f"With {recommended_holes} holes planned, you should be able to complete your round"
-    
-    # Use double braces to escape in f-string
-    prompt = f"""Write a short, friendly paragraph following this EXACT structure. Use British English. You may rephrase slightly but must keep it casual and concise.
+    # Build prompt using template variables
+    prompt = f"""You are an experienced club professional and playing partner.
 
-REQUIRED STRUCTURE:
+Your job is NOT to decide whether someone should play.
+That decision has already been made by the system.
 
-Sentence 1: "Today at {course_name}, expect {{weather_short}} and {{ground_short}} ground."
-- weather_short: Use weather_rating="{weather_rating}" (Good/Mixed/Poor) - rephrase casually (e.g., "good weather", "mixed conditions", "poor conditions")
-- ground_short: Use ground_rating="{ground_rating}" (Firm/Mixed/Soft/Soggy) - rephrase casually (e.g., "firm", "mixed", "soft", "soggy")
+Your job is to:
+- Explain the decision clearly and calmly
+- Help the golfer understand what they will realistically get out of today
+- Keep them feeling respected and motivated
+- Frame alternatives as smart choices, not compromises
 
-Sentence 2: "{{busyness_short}}. {{daylight_short}}."
-- busyness_short: Use busyness_rating="{busyness_rating}" (Quiet/Moderate/Busy/Very busy) - rephrase casually (e.g., "It's quiet", "Expect moderate crowds", "It'll be busy")
-- daylight_short: "{daylight_short}"
+Never shame, judge, or dismiss the desire to play.
+Never say "don't play" without offering a constructive alternative.
+Never mention internal scores or thresholds.
 
-Sentence 3: "Verdict: {verdict}. {{next_step}}."
-- verdict: Use exactly "{verdict}" (Play or Don't play)
-- next_step: "{next_step}"
+Context:
+- Location: London
+- Playability tier: {playability_tier}
+- Primary recommendation: {primary_recommendation}
+- Weather summary: {weather_summary}
+- Ground conditions: {ground_conditions}
+- Course pressure: {course_pressure}
+- Daylight situation: {daylight_summary}
+- Confidence level: {confidence}
+- Handicap used: {str(handicap_used).lower()}
 
-Optional Sentence 4: "Price: {price_label}."
-- price_label: Use exactly "{price_label}" (Affordable, Mid-range, or Expensive)
+Explain to the golfer:
+
+1) In plain language, what today will actually feel like on the course.
+2) Why the recommendation makes sense in terms of enjoyment, fatigue, and improvement.
+3) What they will likely get MORE out of by following the recommendation.
+4) If the recommendation is not a full round, explain why that is a smart golf decision, not a lesser one.
+5) End with a light nudge that Alba helps find better days, better times, or easier games.
 
 Tone:
-- Sound like a helpful golfer friend, casual and friendly
-- Use simple words
-- You may rephrase slightly but keep the structure and meaning
-
-Forbidden words:
-- Do not use: "rating", "resulting in", "advisable", "hindered", "feasible", "circumstances"
-- Do not mention "LLM" or the model
-- Do not repeat the same word twice in a row
-- Do not use ampersands or em dashes
-
-Assessment data:
-{json.dumps(structured_input, indent=2)}
-
-Write the paragraph following the exact structure above."""
+- Calm
+- Practical
+- Supportive
+- Sounds like advice from someone who has played in these conditions before"""
     
     # Log immediately before the API call
     request_id_str = f" request_id={request_id}" if request_id else ""
-    logger.info(f"Calling OpenAI summary{request_id_str}")
+    logger.info(f"Calling OpenAI explanation{request_id_str}")
     
     # Make synchronous API call in a thread pool to avoid blocking
     try:
@@ -3285,22 +3220,22 @@ Write the paragraph following the exact structure above."""
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful golfer friend giving friendly advice about golf course conditions. Write in a conversational, friendly tone using second person ('you') and simple words. Write 2-4 sentences maximum. Use British English. Sound like a friend, not a report. Do not use formal words like 'rating', 'resulting in', 'advisable', 'hindered', 'feasible', or 'circumstances'. Do not mention LLM or the model. Do not invent facts, numbers, live prices, or live tee times. Do not use ampersands or em dashes."
+                        "content": "You are an experienced club professional and playing partner. Your job is NOT to decide whether someone should play - that decision has already been made. Your job is to explain the decision clearly and calmly, help the golfer understand what they will realistically get out of today, keep them feeling respected and motivated, and frame alternatives as smart choices, not compromises. Never shame, judge, or dismiss the desire to play. Never say 'don't play' without offering a constructive alternative. Never mention internal scores or thresholds. Use British English. Sound calm, practical, and supportive - like advice from someone who has played in these conditions before."
                     },
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=120,
-                temperature=0.3
+                max_tokens=300,
+                temperature=0.7
             ),
             timeout=10.0
         )
         
         explanation = response.choices[0].message.content.strip()
-        logger.info(f"OpenAI summary succeeded{request_id_str}")
+        logger.info(f"OpenAI explanation succeeded{request_id_str}")
         return explanation
     except Exception as e:
         # Log the exception message before re-raising
-        logger.error(f"OpenAI summary failed: {str(e)}", exc_info=True)
+        logger.error(f"OpenAI explanation failed: {str(e)}", exc_info=True)
         raise
 
 
