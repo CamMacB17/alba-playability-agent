@@ -3782,6 +3782,50 @@ async def read_root():
                     padding: 16px;
                 }}
             }}
+            .qa-section {{
+                background: linear-gradient(to bottom, rgba(48, 48, 53, 0.95), #303035);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                box-shadow: 
+                    0 2px 10px rgba(0, 0, 0, 0.25),
+                    0 1px 4px rgba(0, 0, 0, 0.15);
+                margin: 24px auto;
+                max-width: 600px;
+                padding: 20px;
+            }}
+            .qa-section h2 {{
+                font-weight: 700;
+                color: var(--alba-cream);
+                font-size: 14px;
+                letter-spacing: -0.1px;
+                margin-bottom: 16px;
+            }}
+            .qa-item {{
+                margin-bottom: 16px;
+            }}
+            .qa-item:last-child {{
+                margin-bottom: 0;
+            }}
+            .qa-question {{
+                font-weight: 600;
+                color: var(--alba-cream);
+                font-size: 14px;
+                margin-bottom: 6px;
+                line-height: 1.5;
+            }}
+            .qa-answer {{
+                color: rgba(255, 247, 224, 0.8);
+                font-size: 14px;
+                font-weight: 400;
+                line-height: 1.6;
+                padding-left: 0;
+            }}
+            @media (max-width: 640px) {{
+                .qa-section {{
+                    margin: 20px auto;
+                    padding: 16px;
+                }}
+            }}
         </style>
     </head>
     <body>
@@ -4059,6 +4103,25 @@ async def read_root():
                     </ul>
                 </div>
             </details>
+        </div>
+        <div class="qa-section">
+            <h2>Common questions about playing golf in London</h2>
+            <div class="qa-item">
+                <div class="qa-question">Q: Is it worth playing golf in winter in London?</div>
+                <div class="qa-answer">A: Yes, but course drainage, daylight, and wind matter more than temperature.</div>
+            </div>
+            <div class="qa-item">
+                <div class="qa-question">Q: Is soft ground bad for high handicappers?</div>
+                <div class="qa-answer">A: Soft ground reduces roll and increases fatigue, especially on longer courses.</div>
+            </div>
+            <div class="qa-item">
+                <div class="qa-question">Q: When is the best time of day to play in winter?</div>
+                <div class="qa-answer">A: Late morning to early afternoon offers better light and warmer conditions.</div>
+            </div>
+            <div class="qa-item">
+                <div class="qa-question">Q: Is 9 holes better than 18 in poor conditions?</div>
+                <div class="qa-answer">A: Often yes. Shorter rounds reduce fatigue and pace issues in heavy conditions.</div>
+            </div>
         </div>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
         {IFRAME_RESIZE_SCRIPT}
