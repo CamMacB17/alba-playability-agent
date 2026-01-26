@@ -1431,14 +1431,20 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
     max_what_bullets = 3 if tier in ["Challenging", "Rough"] else 2
     
     if "what_you_could_do_bullets" not in result or not isinstance(result["what_you_could_do_bullets"], list):
-        if tier in ["Great", "Decent"]:
+        if tier == "Decent":
+            # Decent: Primary action (18 holes) with reason, plus tactical tip
             result["what_you_could_do_bullets"] = [
-                "Book early morning slots for better pace and smoother rounds.",
-                "Consider 9 holes if you want to avoid peak crowds."
+                "18 holes works well today. Conditions are manageable so you'll get good value.",
+                "Book early morning or late afternoon to avoid peak crowds."
+            ]
+        elif tier == "Great":
+            result["what_you_could_do_bullets"] = [
+                "18 holes looks good today. Conditions are in your favour.",
+                "Early morning slots offer better pace when it's quieter."
             ]
         else:  # Challenging or Rough
             result["what_you_could_do_bullets"] = [
-                "Book 9 holes to avoid fighting through tough conditions.",
+                "9 holes might be more manageable. You'll get better value from a shorter round.",
                 "Early morning slots offer better pace when it's quieter.",
                 "Range session lets you work on technique without pressure."
             ]
@@ -1447,23 +1453,23 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
         if tier == "Decent":
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "Book early morning slots for better pace and smoother rounds.",
-                    "Consider 9 holes if you want to avoid peak crowds."
+                    "18 holes works well today. Conditions are manageable so you'll get good value.",
+                    "Book early morning or late afternoon to avoid peak crowds."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Consider 9 holes if you want to avoid peak crowds.")
+                result["what_you_could_do_bullets"].append("Book early morning or late afternoon to avoid peak crowds.")
         elif tier == "Great":
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "Book early morning slots for better pace and smoother rounds.",
-                    "Consider 9 holes if you want to avoid peak crowds."
+                    "18 holes looks good today. Conditions are in your favour.",
+                    "Early morning slots offer better pace when it's quieter."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Consider 9 holes if you want to avoid peak crowds.")
+                result["what_you_could_do_bullets"].append("Early morning slots offer better pace when it's quieter.")
         else:  # Challenging or Rough
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "Book 9 holes to avoid fighting through tough conditions.",
+                    "9 holes might be more manageable. You'll get better value from a shorter round.",
                     "Early morning slots offer better pace when it's quieter.",
                     "Range session lets you work on technique without pressure."
                 ]
@@ -1490,58 +1496,61 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
             ]
         elif tier == "Decent":
             result["instead_activities"] = [
-                "If you want it easier: play 9 and keep it moving."
+                "9 holes or a range session gives you good value if you're pressed for time."
             ]
         else:  # Great
             result["instead_activities"] = [
-                "If you want it easier: play 9 and keep it moving."
+                "9 holes works well if you're short on time."
             ]
     # Ensure exactly 1 item (template requirement: 1 bullet)
     if len(result["instead_activities"]) < 1:
         if tier in ["Challenging", "Rough"]:
-            result["instead_activities"] = ["If you want max value today: range plus short game."]
-        else:
-            result["instead_activities"] = ["If you want it easier: play 9 and keep it moving."]
+            result["instead_activities"] = ["Range session or short game practice offers better value in these conditions."]
+        elif tier == "Decent":
+            result["instead_activities"] = ["9 holes or a range session gives you good value if you're pressed for time."]
+        else:  # Great
+            result["instead_activities"] = ["9 holes works well if you're short on time."]
     # Cap at 1 item (template requirement: 1 bullet)
     result["instead_activities"] = result["instead_activities"][:1]
     
     # Ensure if_you_play_tips exists (list, len 2-4) for Challenging/Rough, optional otherwise
+    # Max 2 short sentences per bullet, no dashes, friendly pro shop tone
     if "if_you_play_tips" not in result or not isinstance(result["if_you_play_tips"], list):
         if tier == "Challenging":
             result["if_you_play_tips"] = [
-                "Pack waterproofs and a spare glove—conditions can change quickly and staying dry keeps you comfortable",
-                "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
-                "Adjust expectations and focus on technique—today's about building good habits, not scoring low"
+                "Pack waterproofs and a spare glove. Conditions can change quickly and staying dry keeps you comfortable.",
+                "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
+                "Adjust expectations and focus on technique. Today's about building good habits, not scoring low."
             ]
         elif tier == "Rough":
             result["if_you_play_tips"] = [
-                "Waterproofs and spare glove are essential—you'll need them and staying dry makes everything easier",
-                "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
-                "Flight it down in the wind—keep the ball low to avoid losing control, and adjust expectations—today's about survival, not scoring"
+                "Waterproofs and spare glove are essential. You'll need them and staying dry makes everything easier.",
+                "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
+                "Flight it down in the wind. Keep the ball low to avoid losing control, and adjust expectations. Today's about survival, not scoring."
             ]
         elif tier == "Decent":
             result["if_you_play_tips"] = [
-                "Keep an eye on the weather—conditions are decent but can change, so be prepared",
-                "Pace yourself—decent conditions mean you can play well, but don't rush and enjoy the round"
+                "Keep an eye on the weather. Conditions are decent but can change, so be prepared.",
+                "Pace yourself. Decent conditions mean you can play well, but don't rush and enjoy the round."
             ]
         else:  # Great
             result["if_you_play_tips"] = [
-                "Conditions are ideal—trust your swing and enjoy the round",
-                "Take advantage of the good conditions—this is a great day to work on scoring and course management"
+                "Conditions are ideal. Trust your swing and enjoy the round.",
+                "Take advantage of the good conditions. This is a great day to work on scoring and course management."
             ]
     # Ensure at least 2 items (always present requirement)
     if len(result["if_you_play_tips"]) < 2:
         if tier in ["Challenging", "Rough"]:
             while len(result["if_you_play_tips"]) < 2:
-                result["if_you_play_tips"].append("Adjust expectations and focus on technique—today's about building good habits, not scoring low")
+                result["if_you_play_tips"].append("Adjust expectations and focus on technique. Today's about building good habits, not scoring low.")
         else:
             if len(result["if_you_play_tips"]) == 0:
                 result["if_you_play_tips"] = [
-                    "Keep an eye on the weather—conditions can change, so be prepared",
-                    "Pace yourself and enjoy the round"
+                    "Keep an eye on the weather. Conditions can change, so be prepared.",
+                    "Pace yourself and enjoy the round."
                 ]
             else:
-                result["if_you_play_tips"].append("Pace yourself and enjoy the round")
+                result["if_you_play_tips"].append("Pace yourself and enjoy the round.")
     
     # Ensure trade_off_sentence exists (empty string for deterministic, LLM will populate)
     if "trade_off_sentence" not in result:
@@ -1605,9 +1614,11 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
         if key not in llm_output:
             return False, f"Missing required key: {key}"
     
-    # Validate tier matches exactly
-    if llm_output["playability_tier"] != deterministic_payload["playability_tier"]:
-        return False, f"Tier mismatch: expected '{deterministic_payload['playability_tier']}', got '{llm_output['playability_tier']}'"
+    # Validate tier matches exactly (with resilient fallbacks)
+    expected_tier = deterministic_payload.get("playability_tier") or deterministic_payload.get("tier") or "Decent"
+    actual_tier = llm_output.get("playability_tier") or llm_output.get("tier")
+    if actual_tier and actual_tier != expected_tier:
+        return False, f"Tier mismatch: expected '{expected_tier}', got '{actual_tier}'"
     
     # Validate best_move matches exactly
     if llm_output["best_move"] != deterministic_payload["best_move"]:
@@ -1694,8 +1705,9 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     
     for key, original_list in list_checks:
         if key not in llm_output:
-            # If it's required for Challenging/Rough, it must exist
-            if deterministic_payload["playability_tier"] in ["Challenging", "Rough"]:
+            # If it's required for Challenging/Rough, it must exist (with resilient fallback)
+            tier = deterministic_payload.get("playability_tier") or deterministic_payload.get("tier") or "Decent"
+            if tier in ["Challenging", "Rough"]:
                 if key in ["instead_activities", "if_you_play_tips"]:
                     return False, f"Missing required key for Challenging/Rough: {key}"
             continue
@@ -3974,21 +3986,29 @@ def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: D
         text = text.replace(" – ", ". ")
         text = text.replace("–", ". ")
         text = text.replace(" - ", ". ")
-        # Clean up multiple spaces
-        text = re.sub(r'\s+', ' ', text)
-        text = text.strip()
-        # Enforce word limit if specified
-        if max_words:
-            words = text.split()
-            if len(words) > max_words:
-                # Truncate to max_words and add period
-                text = " ".join(words[:max_words])
-                if not text.endswith((".", "!", "?")):
-                    text += "."
-        # Ensure proper sentence ending
-        if text and not text.endswith((".", "!", "?")):
-            text += "."
-        return text
+    # Clean up multiple spaces
+    text = re.sub(r'\s+', ' ', text)
+    text = text.strip()
+    # Enforce word limit if specified
+    if max_words:
+        words = text.split()
+        if len(words) > max_words:
+            # Truncate to max_words and add period
+            text = " ".join(words[:max_words])
+            if not text.endswith((".", "!", "?")):
+                text += "."
+    # Remove double full stops
+    while ".." in text:
+        text = text.replace("..", ".")
+    while ". ." in text:
+        text = text.replace(". .", ".")
+    # Remove "If you're X: If you're Y" structures (redundant conditionals)
+    text = re.sub(r'If you\'re ([^:]+):\s*If you\'re ([^:]+):', r'If you\'re \1:', text, flags=re.IGNORECASE)
+    text = re.sub(r'If you want ([^:]+):\s*If you want ([^:]+):', r'If you want \1:', text, flags=re.IGNORECASE)
+    # Ensure proper sentence ending
+    if text and not text.endswith((".", "!", "?")):
+        text += "."
+    return text
     
     def clean_what_bullet(text: str) -> str:
         """Clean what_you_could_do bullet: max 18 words, no dashes, no repetition"""
@@ -4108,6 +4128,16 @@ def clean_copy_text(text: str) -> str:
     while "  " in text:
         text = text.replace("  ", " ")
     
+    # Remove double full stops
+    while ".." in text:
+        text = text.replace("..", ".")
+    while ". ." in text:
+        text = text.replace(". .", ".")
+    
+    # Remove "If you're X: If you're Y" structures (redundant conditionals)
+    text = re.sub(r'If you\'re ([^:]+):\s*If you\'re ([^:]+):', r'If you\'re \1:', text, flags=re.IGNORECASE)
+    text = re.sub(r'If you want ([^:]+):\s*If you want ([^:]+):', r'If you want \1:', text, flags=re.IGNORECASE)
+    
     # Ensure proper sentence ending
     text = text.strip()
     if text and not text.endswith((".", "!", "?")):
@@ -4207,6 +4237,13 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             deterministic_payload_with_context = deterministic_payload.copy()
             deterministic_payload_with_context["course_name"] = context.get("course_name", "")
             deterministic_payload_with_context["handicap"] = context.get("handicap")
+            
+            # Ensure playability_tier is present (use tier as fallback if needed)
+            if "playability_tier" not in deterministic_payload_with_context:
+                deterministic_payload_with_context["playability_tier"] = deterministic_payload_with_context.get("tier", "Decent")
+            
+            # Add debug field for payload keys (always add for debugging)
+            errors["llm_payload_keys"] = list(deterministic_payload_with_context.keys())
             
             # Call LLM to rewrite copy
             llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
@@ -4347,11 +4384,12 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     except ImportError:
         raise ValueError("OpenAI package not installed")
     
-    # Extract deterministic data
-    playability_tier = deterministic_payload["playability_tier"]
-    best_move = deterministic_payload["best_move"]
-    why_bullets = deterministic_payload["why_bullets"]
-    what_you_could_do_bullets = deterministic_payload["what_you_could_do_bullets"]
+    # Extract deterministic data with resilient fallbacks
+    # Get playability_tier with fallbacks: playability_tier -> tier -> computed default
+    playability_tier = deterministic_payload.get("playability_tier") or deterministic_payload.get("tier") or "Decent"
+    best_move = deterministic_payload.get("best_move", "18 holes")
+    why_bullets = deterministic_payload.get("why_bullets", [])
+    what_you_could_do_bullets = deterministic_payload.get("what_you_could_do_bullets", [])
     instead_activities = deterministic_payload.get("instead_activities", [])
     if_you_play_tips = deterministic_payload.get("if_you_play_tips", [])
     reasons = deterministic_payload.get("reasons", [])
@@ -6316,27 +6354,28 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 break
     
     # Template fallback: ensure at least 2 bullets, cap at max_what_bullets
+    # Decent: Primary action (18 holes) with reason, plus tactical tip
     if len(what_you_could_do_bullets) < 2:
         if playability_tier == "Decent":
             if len(what_you_could_do_bullets) == 0:
                 what_you_could_do_bullets.extend([
-                    "Book early morning slots for better pace and smoother rounds.",
-                    "Consider 9 holes if you want to avoid peak crowds."
+                    "18 holes works well today. Conditions are manageable so you'll get good value.",
+                    "Book early morning or late afternoon to avoid peak crowds."
                 ])
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("Consider 9 holes if you want to avoid peak crowds.")
+                what_you_could_do_bullets.append("Book early morning or late afternoon to avoid peak crowds.")
         elif playability_tier == "Great":
             if len(what_you_could_do_bullets) == 0:
                 what_you_could_do_bullets.extend([
-                    "Book early morning slots for better pace and smoother rounds.",
-                    "Consider 9 holes if you want to avoid peak crowds."
+                    "18 holes looks good today. Conditions are in your favour.",
+                    "Early morning slots offer better pace when it's quieter."
                 ])
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("Consider 9 holes if you want to avoid peak crowds.")
+                what_you_could_do_bullets.append("Early morning slots offer better pace when it's quieter.")
         else:  # Challenging or Rough
             if len(what_you_could_do_bullets) == 0:
                 what_you_could_do_bullets.extend([
-                    "Book 9 holes to avoid fighting through tough conditions.",
+                    "9 holes might be more manageable. You'll get better value from a shorter round.",
                     "Early morning slots offer better pace when it's quieter.",
                     "Range session lets you work on technique without pressure."
                 ])
@@ -6352,49 +6391,50 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     what_you_could_do_bullets = what_you_could_do_bullets[:max_what_bullets]
     
     # Generate instead_activities (deterministic)
-    # Format: "If you want [benefit]: [action]." - one tight line
+    # Single sentence offering alternative without contradicting main recommendation
     instead_activities = []
     if playability_tier == "Challenging":
         instead_activities = [
-            "If you want max value today: range plus short game."
+            "Range session or short game practice offers better value in these conditions."
         ]
     elif playability_tier == "Rough":
         instead_activities = [
-            "If you want max value today: range plus short game."
+            "Range session or short game practice offers better value in these conditions."
         ]
     elif playability_tier == "Decent":
         instead_activities = [
-            "If you want it easier: play 9 and keep it moving."
+            "9 holes or a range session gives you good value if you're pressed for time."
         ]
     elif playability_tier == "Great":
         instead_activities = [
-            "If you want it easier: play 9 and keep it moving."
+            "9 holes works well if you're short on time."
         ]
     
     # Generate if_you_play_tips (deterministic)
     # Always present, 2-3 practical tips with context
+    # Max 2 short sentences per bullet, no dashes, friendly pro shop tone
     if_you_play_tips = []
     if playability_tier == "Challenging":
         if_you_play_tips = [
-            "Pack waterproofs and a spare glove—conditions can change quickly and staying dry keeps you comfortable",
-            "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
-            "Adjust expectations and focus on technique—today's about building good habits, not scoring low"
+            "Pack waterproofs and a spare glove. Conditions can change quickly and staying dry keeps you comfortable.",
+            "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
+            "Adjust expectations and focus on technique. Today's about building good habits, not scoring low."
         ]
     elif playability_tier == "Rough":
         if_you_play_tips = [
-            "Waterproofs and spare glove are essential—you'll need them and staying dry makes everything easier",
-            "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
-            "Flight it down in the wind—keep the ball low to avoid losing control, and adjust expectations—today's about survival, not scoring"
+            "Waterproofs and spare glove are essential. You'll need them and staying dry makes everything easier.",
+            "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
+            "Flight it down in the wind. Keep the ball low to avoid losing control, and adjust expectations. Today's about survival, not scoring."
         ]
     elif playability_tier == "Decent":
         if_you_play_tips = [
-            "Keep an eye on the weather—conditions are decent but can change, so be prepared",
-            "Pace yourself—decent conditions mean you can play well, but don't rush and enjoy the round"
+            "Keep an eye on the weather. Conditions are decent but can change, so be prepared.",
+            "Pace yourself. Decent conditions mean you can play well, but don't rush and enjoy the round."
         ]
     elif playability_tier == "Great":
         if_you_play_tips = [
-            "Conditions are ideal—trust your swing and enjoy the round",
-            "Take advantage of the good conditions—this is a great day to work on scoring and course management"
+            "Conditions are ideal. Trust your swing and enjoy the round.",
+            "Take advantage of the good conditions. This is a great day to work on scoring and course management."
         ]
     
     # Build deterministic payload dict with ALL sections
@@ -6464,6 +6504,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     copy_debug["llm_model"] = copy_errors.get("model")
     copy_debug["llm_parse_stage"] = copy_errors.get("parse_stage")
     copy_debug["llm_missing_keys"] = copy_errors.get("missing_keys", [])
+    copy_debug["llm_payload_keys"] = copy_errors.get("llm_payload_keys", [])
     
     # Log result
     if copy_source == "llm":
