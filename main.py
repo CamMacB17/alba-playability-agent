@@ -1440,53 +1440,60 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
             ]
     # Ensure at least 2 items (template fallback requirement)
     if len(result["what_you_could_do_bullets"]) < 2:
-        if tier in ["Great", "Decent"]:
+        if tier == "Decent":
+            # Decent tier: friendly club pro tone
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "18 holes looks good today—conditions are in your favour and you'll get more out of a full round than rushing through.",
-                    "Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting."
+                    "18 holes works well today. Weather and ground conditions are manageable, so you'll get good value from a full round.",
+                    "Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting.")
+                result["what_you_could_do_bullets"].append("Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead.")
+        elif tier == "Great":
+            if len(result["what_you_could_do_bullets"]) == 0:
+                result["what_you_could_do_bullets"] = [
+                    "18 holes looks good today. Conditions are in your favour and you'll get more out of a full round than rushing through.",
+                    "Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting."
+                ]
+            else:
+                result["what_you_could_do_bullets"].append("Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting.")
         else:
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "9 holes might be more manageable—you'll get better value from a shorter round than fighting through 18 in these conditions.",
-                    "A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather."
+                    "9 holes might be more manageable. You'll get better value from a shorter round than fighting through 18 in these conditions.",
+                    "A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather.")
-    # Cap at 3 items
-    result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:3]
+                result["what_you_could_do_bullets"].append("A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather.")
+    # Cap at 2 items (template requirement: 2 bullets)
+    result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:2]
     
-    # Ensure instead_activities exists (list, len 1-2) - always present, friendly bullets with trade-offs
+    # Ensure instead_activities exists (list, len 1) - always present, exactly 1 bullet
     if "instead_activities" not in result or not isinstance(result["instead_activities"], list):
         if tier == "Challenging":
             result["instead_activities"] = [
-                "9 holes—shorter round lets you focus on technique without the pressure",
-                "Range session or short game practice—you'll get more value from focused work than fighting the elements"
+                "9 holes or range session. Shorter round lets you focus on technique without the pressure."
             ]
         elif tier == "Rough":
             result["instead_activities"] = [
-                "Range session or short game practice—conditions are tough, so practice facilities offer better value today",
-                "Putting green or simulator—indoor options let you work on your game without battling the weather"
+                "Range session or short game practice. Conditions are tough, so practice facilities offer better value today."
             ]
         elif tier == "Decent":
             result["instead_activities"] = [
-                "9 holes—if you're short on time, a shorter round still gives you quality practice",
-                "Range session—focused work on technique can be more valuable than rushing through 18"
+                "9 holes or a range session gives you the most value per hour if you're pressed for time."
             ]
         else:  # Great
             result["instead_activities"] = [
-                "9 holes—if you're short on time, a shorter round still gives you quality practice",
-                "Range session—focused work on technique can be more valuable than rushing through 18"
+                "9 holes if you're short on time. A shorter round still gives you quality practice."
             ]
-    # Ensure at least 1 item (always present requirement)
+    # Ensure exactly 1 item (template requirement: 1 bullet)
     if len(result["instead_activities"]) < 1:
         if tier in ["Challenging", "Rough"]:
-            result["instead_activities"] = ["Range session or short game practice—you'll get more value from focused work than fighting the elements"]
+            result["instead_activities"] = ["Range session or short game practice. You'll get more value from focused work than fighting the elements."]
         else:
-            result["instead_activities"] = ["9 holes—if you're short on time, a shorter round still gives you quality practice"]
+            result["instead_activities"] = ["9 holes or a range session gives you the most value per hour if you're pressed for time."]
+    # Cap at 1 item (template requirement: 1 bullet)
+    result["instead_activities"] = result["instead_activities"][:1]
     
     # Ensure if_you_play_tips exists (list, len 2-4) for Challenging/Rough, optional otherwise
     if "if_you_play_tips" not in result or not isinstance(result["if_you_play_tips"], list):
@@ -3627,6 +3634,91 @@ def generate_handicap_aware_why_bullets(reasons, handicap, weather_label, ground
     return bullets[:max_bullets] if len(bullets) >= min_bullets else bullets
 
 
+def clean_copy_text(text: str) -> str:
+    """
+    Clean copy text by replacing dashes/hyphens with proper punctuation,
+    removing repetition, and enforcing max length.
+    
+    Rules:
+    - Replace " — " and "–" with ". "
+    - Replace " - " with ". "
+    - Don't break legitimate words like "all weather"
+    - Remove repetition patterns (e.g., "18 holes. Full round..." -> keep only one)
+    - Enforce max 140 characters per bullet, split into two sentences if needed
+    """
+    if not text or not isinstance(text, str):
+        return text
+    
+    # Replace em dashes, en dashes, and hyphens used as separators
+    # Replace " — " (em dash with spaces) with ". "
+    text = text.replace(" — ", ". ")
+    # Replace "–" (en dash) with ". "
+    text = text.replace("–", ". ")
+    # Replace " - " (hyphen with spaces) with ". "
+    text = text.replace(" - ", ". ")
+    
+    # Don't break legitimate compound words/phrases
+    # Common golf terms that use hyphens legitimately
+    legitimate_hyphens = [
+        "all-weather", "all weather", "short-game", "short game",
+        "long-range", "long range", "well-suited", "well suited"
+    ]
+    # Note: We've already replaced spaced hyphens above, so this is mainly for documentation
+    
+    # Remove obvious repetition patterns
+    # Pattern: "Subject. Subject..." -> keep only one
+    sentences = text.split(". ")
+    if len(sentences) >= 2:
+        first_sentence = sentences[0].strip()
+        second_sentence = sentences[1].strip()
+        
+        # Check if second sentence starts with same subject as first
+        first_words = first_sentence.split()[:3]  # First 3 words
+        second_words = second_sentence.split()[:3]
+        
+        # If first 2-3 words match, likely repetition
+        if len(first_words) >= 2 and len(second_words) >= 2:
+            if first_words[0].lower() == second_words[0].lower() and \
+               first_words[1].lower() == second_words[1].lower():
+                # Remove repetition - keep first sentence, skip second
+                text = ". ".join([first_sentence] + sentences[2:])
+                if text and not text.endswith("."):
+                    text += "."
+    
+    # Enforce max length: 140 characters per bullet
+    # If longer, try to split into two sentences
+    if len(text) > 140:
+        # Try to split at natural sentence boundaries
+        sentences = text.split(". ")
+        if len(sentences) >= 2:
+            # Already has multiple sentences, keep as is but ensure proper formatting
+            text = ". ".join(sentences)
+            if text and not text.endswith("."):
+                text += "."
+        else:
+            # Single long sentence - try to split at comma or natural break
+            if "," in text:
+                parts = text.split(",", 1)
+                if len(parts) == 2 and len(parts[0]) < 100:
+                    text = f"{parts[0]}. {parts[1].strip()}"
+                    if not text.endswith("."):
+                        text += "."
+            # If still too long, truncate at 140 and add ellipsis
+            if len(text) > 140:
+                text = text[:137] + "..."
+    
+    # Clean up multiple spaces
+    while "  " in text:
+        text = text.replace("  ", " ")
+    
+    # Ensure proper sentence ending
+    text = text.strip()
+    if text and not text.endswith((".", "!", "?")):
+        text += "."
+    
+    return text
+
+
 def get_ground_label(ground_info) -> str:
     """
     Extract ground label from ground_info dict or return as-is if already a string.
@@ -3763,10 +3855,15 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             
             # LLM output is valid - use it
             final_payload = llm_output.copy()
+            # Extract timing metadata if present
+            llm_metadata = final_payload.pop("_llm_metadata", {})
             # Ensure tier_reasons is preserved (not rewritten by LLM)
             final_payload["tier_reasons"] = deterministic_payload.get("tier_reasons", [])
             
-            return "llm", "generate_llm_copy", final_payload, {}
+            # Add timing info to errors dict for debug tracking
+            errors.update(llm_metadata)
+            
+            return "llm", "generate_llm_copy", final_payload, errors
             
         except Exception as e:
             # Capture exception details
@@ -3804,13 +3901,11 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     if not api_key:
         raise ValueError("OPENAI_API_KEY missing")
     
-    # Import OpenAI
+    # Import OpenAI (will be imported again with timeout config below)
     try:
         from openai import OpenAI
     except ImportError:
         raise ValueError("OpenAI package not installed")
-    
-    client = OpenAI(api_key=api_key)
     
     # Extract deterministic data
     playability_tier = deterministic_payload["playability_tier"]
@@ -3947,24 +4042,65 @@ Return ONLY valid JSON matching the structure above."""
     request_id_str = f" request_id={request_id}" if request_id else ""
     logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
     
+    # Timing and model config
+    llm_timeout_seconds = 20.0
+    llm_model = "gpt-4o-mini"
+    max_output_tokens = 350
+    
+    # Create client with explicit timeout
+    from openai import OpenAI
+    client_with_timeout = OpenAI(
+        api_key=api_key,
+        timeout=llm_timeout_seconds  # Connect + read timeout
+    )
+    
+    import time
+    start_time = time.time()
+    
     try:
-        response = await asyncio.wait_for(
-            asyncio.to_thread(
-                client.chat.completions.create,
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands like 'Play 18.' 'Enjoy your round.' 'Conditions are suitable today.' Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard. If handicap <= 6, never recommend skipping unless tier is Rough AND conditions are extreme. Banner summary must be useful and specific, not flat. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=1200,
-                temperature=0.2,
-                response_format={"type": "json_object"}
-            ),
-            timeout=10.0
-        )
+        # First attempt
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client_with_timeout.chat.completions.create,
+                    model=llm_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands like 'Play 18.' 'Enjoy your round.' 'Conditions are suitable today.' Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard. If handicap <= 6, never recommend skipping unless tier is Rough AND conditions are extreme. Banner summary must be useful and specific, not flat. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=max_output_tokens,
+                    temperature=0.2,
+                    response_format={"type": "json_object"}
+                ),
+                timeout=llm_timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            # Retry once on timeout (sleep 250ms, then retry)
+            logger.warning(f"LLM timeout on first attempt{request_id_str}, retrying after 250ms")
+            await asyncio.sleep(0.25)
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client_with_timeout.chat.completions.create,
+                    model=llm_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic. Use UK tone and spelling. Avoid robotic commands like 'Play 18.' 'Enjoy your round.' 'Conditions are suitable today.' Each bullet should feel like a helpful tip, not an order. Never claim certainty - use 'likely', 'tends to', 'you'll probably'. Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard. If handicap <= 6, never recommend skipping unless tier is Rough AND conditions are extreme. Banner summary must be useful and specific, not flat. You must preserve all structure, counts, and non-text fields. Return only valid JSON matching the exact structure provided."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=max_output_tokens,
+                    temperature=0.2,
+                    response_format={"type": "json_object"}
+                ),
+                timeout=llm_timeout_seconds
+            )
+        
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"LLM_OK: request_id={request_id} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
         
         response_text = response.choices[0].message.content.strip()
         
@@ -3972,16 +4108,26 @@ Return ONLY valid JSON matching the structure above."""
         try:
             rewritten_data = json.loads(response_text)
         except json.JSONDecodeError as e:
-            logger.error(f"LLM returned invalid JSON: {e}")
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"LLM returned invalid JSON: {e} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
             raise ValueError("LLM returned invalid JSON structure")
+        
+        # Add timing info to response metadata (for debug tracking)
+        rewritten_data["_llm_metadata"] = {
+            "duration_ms": elapsed_ms,
+            "timeout_seconds": llm_timeout_seconds,
+            "model": llm_model
+        }
         
         return rewritten_data
         
     except asyncio.TimeoutError:
-        logger.error(f"LLM request timed out{request_id_str}")
-        raise ValueError("LLM request timed out")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"LLM request timed out{request_id_str} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+        raise ValueError(f"LLM request timed out after {elapsed_ms}ms (timeout={llm_timeout_seconds}s)")
     except Exception as e:
-        logger.error(f"LLM API error{request_id_str}: {str(e)}")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"LLM API error{request_id_str}: {str(e)} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
         raise
 
 
@@ -5631,10 +5777,10 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             elif "play 18" in action_clean.lower():
                 action_clean = action_clean.replace("Play 18", "18 holes").replace("play 18", "18 holes")
             
-            # Combine action and reason into friendly bullet
+            # Combine action and reason into friendly bullet (use period, not dash)
             if reason_clean:
-                # Use em dash for better readability
-                bullet = f"{action_clean}—{reason_clean.lower()}"
+                # Use period separator instead of dash
+                bullet = f"{action_clean}. {reason_clean.lower()}"
             else:
                 bullet = action_clean
             
@@ -5653,46 +5799,49 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             if len(what_you_could_do_bullets) >= 3:
                 break
     
-    # Template fallback: ensure 2-3 friendly bullets with trade-offs
+    # Template fallback: ensure exactly 2 friendly bullets with trade-offs
     if len(what_you_could_do_bullets) < 2:
-        if playability_tier in ["Great", "Decent"]:
+        if playability_tier == "Decent":
+            # Decent tier: friendly club pro tone
             if len(what_you_could_do_bullets) == 0:
-                what_you_could_do_bullets.append("18 holes looks good today—conditions are in your favour and you'll get more out of a full round than rushing through.")
-                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting.")
+                what_you_could_do_bullets.append("18 holes works well today. Weather and ground conditions are manageable, so you'll get good value from a full round.")
+                what_you_could_do_bullets.append("Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead.")
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting.")
+                what_you_could_do_bullets.append("Early morning or late afternoon slots offer better pace. You'll move smoothly without waiting on groups ahead.")
+        elif playability_tier == "Great":
+            if len(what_you_could_do_bullets) == 0:
+                what_you_could_do_bullets.append("18 holes looks good today. Conditions are in your favour and you'll get more out of a full round than rushing through.")
+                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting.")
+            elif len(what_you_could_do_bullets) == 1:
+                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times. Quieter slots help you maintain rhythm and avoid waiting.")
         else:  # Challenging or Rough
             if len(what_you_could_do_bullets) == 0:
-                what_you_could_do_bullets.append("9 holes might be more manageable—you'll get better value from a shorter round than fighting through 18 in these conditions.")
-                what_you_could_do_bullets.append("A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather.")
+                what_you_could_do_bullets.append("9 holes might be more manageable. You'll get better value from a shorter round than fighting through 18 in these conditions.")
+                what_you_could_do_bullets.append("A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather.")
             elif len(what_you_could_do_bullets) == 1:
-                what_you_could_do_bullets.append("A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather.")
+                what_you_could_do_bullets.append("A focused range session could help you work on technique. You'll make more progress without the pressure of scoring in challenging weather.")
     
-    # Cap at 3 items
-    what_you_could_do_bullets = what_you_could_do_bullets[:3]
+    # Cap at 2 items (template requirement: 2 bullets)
+    what_you_could_do_bullets = what_you_could_do_bullets[:2]
     
     # Generate instead_activities (deterministic)
-    # Always present, 1-2 friendly bullets with trade-offs
+    # Always present, exactly 1 bullet (template requirement)
     instead_activities = []
     if playability_tier == "Challenging":
         instead_activities = [
-            "9 holes—shorter round lets you focus on technique without the pressure",
-            "Range session or short game practice—you'll get more value from focused work than fighting the elements"
+            "9 holes or range session. Shorter round lets you focus on technique without the pressure."
         ]
     elif playability_tier == "Rough":
         instead_activities = [
-            "Range session or short game practice—conditions are tough, so practice facilities offer better value today",
-            "Putting green or simulator—indoor options let you work on your game without battling the weather"
+            "Range session or short game practice. Conditions are tough, so practice facilities offer better value today."
         ]
     elif playability_tier == "Decent":
         instead_activities = [
-            "9 holes—if you're short on time, a shorter round still gives you quality practice",
-            "Range session—focused work on technique can be more valuable than rushing through 18"
+            "9 holes or a range session gives you the most value per hour if you're pressed for time."
         ]
     elif playability_tier == "Great":
         instead_activities = [
-            "9 holes—if you're short on time, a shorter round still gives you quality practice",
-            "Range session—focused work on technique can be more valuable than rushing through 18"
+            "9 holes if you're short on time. A shorter round still gives you quality practice."
         ]
     
     # Generate if_you_play_tips (deterministic)
@@ -5783,6 +5932,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     copy_debug["llm_error_type"] = copy_errors.get("llm_error_type")
     copy_debug["llm_error_message"] = copy_errors.get("llm_error_message")
     copy_debug["llm_raw_preview"] = copy_errors.get("llm_raw_preview", "")[:200] if copy_errors.get("llm_raw_preview") else None
+    copy_debug["llm_duration_ms"] = copy_errors.get("duration_ms")
+    copy_debug["llm_timeout_seconds"] = copy_errors.get("timeout_seconds")
+    copy_debug["llm_model"] = copy_errors.get("model")
     
     # Log result
     if copy_source == "llm":
@@ -5861,11 +6013,14 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     ground_label_display = get_ground_label(ground_info)
     
     # Generate banner summary - use LLM-generated if available, otherwise fall back to deterministic
-    if not banner_summary or not banner_summary.strip():
+    # Clean banner summary before using
+    if banner_summary and banner_summary.strip():
+        banner_summary = clean_copy_text(banner_summary)
+    elif not banner_summary or not banner_summary.strip():
         # Fallback: Generate banner summary using condition-based tier reasons
         # Join tier reasons into a single sentence
         if tier_reasons:
-            banner_summary = ". ".join(tier_reasons) + "."
+            banner_summary = clean_copy_text(". ".join(tier_reasons) + ".")
         else:
             # Fallback if no reasons generated
             if playability_tier in ["Great", "Decent"]:
@@ -5905,7 +6060,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             why_bullets_final.append(exposure_drainage_advice)
     
     # Render as HTML
-    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in why_bullets_final]) + '</ul>'
+    # Render as HTML - clean each bullet before rendering
+    why_bullets_html = '<ul class="why-bullets">' + ''.join([f'<li>{clean_copy_text(bullet)}</li>' for bullet in why_bullets_final]) + '</ul>'
     
     # Add exposure/drainage advice to "What to do" if it suggests range/short game (max 1 bullet)
     if exposure_drainage_advice and ("range" in exposure_drainage_advice.lower() or "short game" in exposure_drainage_advice.lower()):
@@ -5928,8 +6084,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     what_to_do_bullets_final = what_to_do_bullets[:max_what_bullets_final] if len(what_to_do_bullets) >= 2 else what_to_do_bullets
     
     # FINAL ASSIGNMENT: Only ONE place where what_bullets_html is set
-    # Render as HTML
-    what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
+    # Render as HTML - clean each bullet before rendering
+    what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{clean_copy_text(bullet)}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
     
     # FINAL_COPY logging - log exactly what will be rendered
     logger.info(f"FINAL_COPY: request_id={request_id} source={copy_debug['copy_source']} tier={playability_tier} llm_effective={llm_effective_enabled} "
@@ -5964,8 +6120,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "playability_tier": playability_tier,
         "suggested_plan": suggested_plan,
         "overall_score": overall_score,
-        "banner_summary": banner_summary,
-        "trade_off_sentence": trade_off_sentence,
+        "banner_summary": clean_copy_text(banner_summary) if banner_summary else "",
+        "trade_off_sentence": clean_copy_text(trade_off_sentence) if trade_off_sentence else "",
         "why_bullets_html": why_bullets_html,
         "what_bullets_html": what_bullets_html,
         "what_section_title": what_section_title,
@@ -6038,7 +6194,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 # For Great/Decent, provide optional alternatives
                 instead_activities = ["9 holes", "Range session"]
         
-        instead_suggestions = ", ".join(instead_activities)
+        # Clean each activity before joining (template requirement: 1 bullet)
+        instead_suggestions = clean_copy_text(instead_activities[0]) if instead_activities else "Range session or short game practice."
         
         # For Challenging/Rough: show "And if you did decide to play..." tips
         # For Great/Decent: soften to optional alternatives
@@ -6070,7 +6227,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             """
         else:
             # For Great/Decent: softer optional wording
-            optional_body = f"If you're short on time: {instead_suggestions}."
+            optional_body = f"If you're short on time: {clean_copy_text(instead_suggestions)}."
             
             instead_section_html = f"""
                         <div class="card card-instead">
@@ -6083,7 +6240,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     else:
         # Fallback: should never happen, but ensure panel always shows
         instead_activities = ["9 holes", "Range session"]
-        optional_body = f"If you're short on time: {', '.join(instead_activities)}."
+        optional_body = f"If you're short on time: {clean_copy_text(', '.join(instead_activities))}."
         instead_section_html = f"""
                     <div class="card card-instead">
                         <div class="card-title">If not, try this instead</div>
@@ -6181,6 +6338,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             tier: {playability_tier}<br>
             llm_effective: {llm_effective_enabled}<br>
             llm_attempted: {copy_debug.get('llm_attempted', False)}<br>
+            {f'llm_duration_ms: {copy_debug.get("llm_duration_ms")}<br>' if copy_debug.get('llm_duration_ms') is not None else ''}
+            {f'llm_timeout_seconds: {copy_debug.get("llm_timeout_seconds")}<br>' if copy_debug.get('llm_timeout_seconds') is not None else ''}
+            {f'llm_model: {copy_debug.get("llm_model")}<br>' if copy_debug.get('llm_model') else ''}
             {f'llm_error_type: {copy_debug.get("llm_error_type")}<br>' if copy_debug.get('llm_error_type') else ''}
             {f'llm_error_message: {copy_debug.get("llm_error_message")}<br>' if copy_debug.get('llm_error_message') else ''}
             <br>
