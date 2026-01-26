@@ -1146,6 +1146,8 @@ def get_playability_tier(overall_score: int) -> str:
     """
     Map overall_score to playability tier.
     Returns: "Great", "Decent", "Challenging", or "Rough"
+    NOTE: This function is kept for backward compatibility.
+    Use classify_playability_tier() for condition-based tier classification.
     """
     if overall_score >= 80:
         return "Great"
@@ -1155,6 +1157,106 @@ def get_playability_tier(overall_score: int) -> str:
         return "Challenging"
     else:
         return "Rough"
+
+
+def classify_playability_tier(precipitation_label: str, precipitation_mm: float, wind_label: str, wind_speed_kmh: float, temperature_avg: float, ground_label: str) -> str:
+    """
+    Classify playability tier based ONLY on weather and ground conditions.
+    Does NOT consider course difficulty or handicap.
+    
+    Args:
+        precipitation_label: "Dry", "Showers", or "Rain"
+        precipitation_mm: Precipitation in mm
+        wind_label: "Calm", "Breezy", or "Windy"
+        wind_speed_kmh: Wind speed in km/h
+        temperature_avg: Average temperature in Celsius
+        ground_label: "Firm", "Normal", "Soft", or "Too soft"
+    
+    Returns: "Great", "Decent", "Challenging", or "Rough"
+    """
+    # Count negative factors
+    negative_factors = 0
+    
+    # Precipitation factors
+    if precipitation_label == "Rain" or precipitation_mm >= 5:
+        negative_factors += 2  # Heavy rain is major negative
+    elif precipitation_label == "Showers" or (precipitation_mm >= 1 and precipitation_mm < 5):
+        negative_factors += 1  # Light rain is minor negative
+    
+    # Wind factors
+    if wind_label == "Windy" or wind_speed_kmh >= 30:
+        negative_factors += 2  # Strong wind is major negative
+    elif wind_label == "Breezy" or (wind_speed_kmh >= 20 and wind_speed_kmh < 30):
+        negative_factors += 1  # Breezy is minor negative
+    
+    # Temperature factors
+    if temperature_avg < 5:
+        negative_factors += 2  # Very cold is major negative
+    elif temperature_avg < 10:
+        negative_factors += 1  # Cold is minor negative
+    
+    # Ground factors
+    if ground_label == "Too soft":
+        negative_factors += 2  # Very soft ground is major negative
+    elif ground_label == "Soft":
+        negative_factors += 1  # Soft ground is minor negative
+    
+    # Classify based on negative factors
+    if negative_factors == 0:
+        return "Great"
+    elif negative_factors <= 2:
+        return "Decent"
+    elif negative_factors <= 4:
+        return "Challenging"
+    else:
+        return "Rough"
+
+
+def tier_reason_strings(precipitation_label: str, precipitation_mm: float, wind_label: str, wind_speed_kmh: float, temperature_avg: float, ground_label: str) -> List[str]:
+    """
+    Generate 2-3 short reason strings based on weather and ground conditions only.
+    No handicap language - purely condition-based.
+    
+    Args:
+        precipitation_label: "Dry", "Showers", or "Rain"
+        precipitation_mm: Precipitation in mm
+        wind_label: "Calm", "Breezy", or "Windy"
+        wind_speed_kmh: Wind speed in km/h
+        temperature_avg: Average temperature in Celsius
+        ground_label: "Firm", "Normal", "Soft", or "Too soft"
+    
+    Returns: List of 2-3 short reason strings
+    """
+    # Build priority-ordered list of reasons (most impactful first)
+    # Priority: Rain > Wind > Very cold > Too soft > Showers > Breezy > Cold > Soft
+    priority_order = []
+    
+    # Precipitation reasons (highest priority)
+    if precipitation_label == "Rain" or precipitation_mm >= 5:
+        priority_order.append("Heavy rain affects ball flight and visibility")
+    elif precipitation_label == "Showers" or (precipitation_mm >= 1 and precipitation_mm < 5):
+        priority_order.append("Light showers may affect play")
+    
+    # Wind reasons
+    if wind_label == "Windy" or wind_speed_kmh >= 30:
+        priority_order.append("Strong winds affect ball flight and distance")
+    elif wind_label == "Breezy" or (wind_speed_kmh >= 20 and wind_speed_kmh < 30):
+        priority_order.append("Breezy conditions affect ball flight")
+    
+    # Temperature reasons
+    if temperature_avg < 5:
+        priority_order.append("Very cold temperatures reduce ball distance")
+    elif temperature_avg < 10:
+        priority_order.append("Cold temperatures reduce ball distance")
+    
+    # Ground reasons
+    if ground_label == "Too soft":
+        priority_order.append("Very soft ground reduces roll and affects footing")
+    elif ground_label == "Soft":
+        priority_order.append("Soft ground reduces roll")
+    
+    # Return top 2-3 reasons (or all if fewer than 3)
+    return priority_order[:3] if len(priority_order) >= 3 else priority_order
 
 
 # Decision classification mapping for structured output and AI interpretation
@@ -4364,10 +4466,37 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # Extract structured outputs
     overall_score = playability["overall_score"]
-    playability_tier = playability["playability_tier"]
     reasons = playability["reasons"]
     recommendations = playability["recommendations"]
     factor_scores = playability["factor_scores"]
+    
+    # Classify playability tier based ONLY on weather and ground conditions
+    # Extract weather data for tier classification
+    precipitation_mm = weather_data.get("precipitation", 0) if weather_data else 0
+    wind_speed_kmh = weather_data.get("wind_speed", 0) if weather_data else 0
+    temp_min = weather_data.get("temperature_min", 10) if weather_data else 10
+    temp_max = weather_data.get("temperature_max", 10) if weather_data else 10
+    temp_avg = (temp_min + temp_max) / 2
+    
+    # Get labels from weather_info and ground_info
+    precipitation_label = weather_info.get("precipitation_label", "Dry")
+    wind_label = weather_info.get("wind_label", "Calm")
+    
+    # Classify tier based only on conditions
+    playability_tier = classify_playability_tier(
+        precipitation_label, precipitation_mm,
+        wind_label, wind_speed_kmh,
+        temp_avg,
+        ground_label
+    )
+    
+    # Generate tier reason strings (condition-based only, no handicap)
+    tier_reasons = tier_reason_strings(
+        precipitation_label, precipitation_mm,
+        wind_label, wind_speed_kmh,
+        temp_avg,
+        ground_label
+    )
     
     # Always try LLM rewrite if available (only rewrites for clarity, doesn't invent)
     llm_rewrite_succeeded = False
@@ -4484,11 +4613,16 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     weather_label_display = normalize_weather_label_for_display(weather_label, weather_data)
     ground_label_display = get_ground_label(ground_info)
     
-    # Generate summary sentence from top drivers
-    banner_summary = generate_banner_summary(
-        reasons, playability_tier, handicap, weather_label_display, 
-        ground_label_display, busyness_label, suitability_label_display
-    )
+    # Generate banner summary using condition-based tier reasons
+    # Join tier reasons into a single sentence
+    if tier_reasons:
+        banner_summary = ". ".join(tier_reasons) + "."
+    else:
+        # Fallback if no reasons generated
+        if playability_tier in ["Great", "Decent"]:
+            banner_summary = "Good conditions today."
+        else:
+            banner_summary = "Conditions add challenge today."
     
     # Why section - cap bullets based on golf_experience
     # Beginner: up to 6 total guidance bullets, Regular: 3-4, Confident: max 3
@@ -4573,6 +4707,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     # Secondary label: "Best move: <plan>"
     best_move_label = f"Best move: {suggested_plan}"
     
+    # Display tier reasons in the banner (condition-based only)
+    tier_reasons_display = banner_summary if banner_summary else ""
+    
     verdict_banner_html = f"""
         <div class="verdict-banner {view_model['tier_banner_class']}">
             <div class="verdict-content">
@@ -4582,6 +4719,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                     </div>
                     <div class="verdict-primary-label">{playability_label}</div>
                     <div class="verdict-secondary-label">{best_move_label}</div>
+                    {f'<div class="verdict-summary">{tier_reasons_display}</div>' if tier_reasons_display else ''}
                     <div class="feedback-link-wrapper">
                         <a href="#" class="feedback-link" onclick="event.preventDefault(); toggleFeedbackPanel(); return false;">Was this helpful? Tell us what felt off.</a>
                     </div>
