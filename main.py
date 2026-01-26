@@ -4523,6 +4523,12 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
     import time
     start_time = time.time()
     
+    # Debug log: show payload dict if debug_mode is enabled (passed via deterministic_payload)
+    debug_mode = deterministic_payload.get("_debug_mode", False)
+    if debug_mode:
+        import json
+        logger.info(f"LLM_PAYLOAD request_id={request_id} payload={json.dumps(deterministic_payload, indent=2)}")
+    
     try:
         # First attempt
         try:
@@ -6448,7 +6454,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "reasons": reasons,
         "recommendations": recommendations,
         "tier_reasons": tier_reasons,
-        "trade_off_sentence": ""  # LLM will generate this, empty for deterministic fallback
+        "trade_off_sentence": "",  # LLM will generate this, empty for deterministic fallback
+        "_debug_mode": debug_mode  # Internal flag for debug logging
     }
     
     # Ensure all required keys exist and validate values
@@ -6475,7 +6482,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "llm_effective": llm_effective_enabled,
         "openai_client": openai_client,
         "course_name": course,
-        "handicap": handicap
+        "handicap": handicap,
+        "debug_mode": debug_mode
     }
     
     # Single function call to build final copy
