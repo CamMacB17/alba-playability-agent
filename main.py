@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 COURSES_PATH = BASE_DIR / "courses.json"
 COURSES_PATH_FALLBACK = BASE_DIR / "data" / "courses.json"
+COURSE_OVERRIDES_PATH = BASE_DIR / "course_overrides.json"
 
 app = FastAPI()
 
@@ -472,6 +473,74 @@ DEMO_COURSES = [
 ]
 
 
+def load_course_overrides() -> Dict[str, Dict[str, Any]]:
+    """
+    Load course overrides from course_overrides.json.
+    Returns dict mapping course name to override fields.
+    """
+    overrides = {}
+    
+    if COURSE_OVERRIDES_PATH.exists():
+        try:
+            with open(COURSE_OVERRIDES_PATH, "r", encoding="utf-8") as f:
+                override_list = json.load(f)
+                
+            if isinstance(override_list, list):
+                for override in override_list:
+                    if isinstance(override, dict) and "name" in override:
+                        course_name = override["name"]
+                        # Store override fields (exclude name)
+                        override_fields = {k: v for k, v in override.items() if k != "name"}
+                        if override_fields:
+                            overrides[course_name] = override_fields
+        except (json.JSONDecodeError, IOError, OSError) as e:
+            logger.warning(f"Failed to load course overrides from {COURSE_OVERRIDES_PATH}: {str(e)}")
+    
+    return overrides
+
+
+def merge_course_overrides(courses: List[Dict[str, Any]], overrides: Dict[str, Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    Merge course overrides into course objects.
+    Applies defaults: exposure="Mixed", drainage="Average" if not present.
+    
+    Args:
+        courses: List of course dicts
+        overrides: Dict mapping course name to override fields (if None, loads from file)
+    
+    Returns: List of merged course dicts
+    """
+    if overrides is None:
+        overrides = load_course_overrides()
+    
+    merged_courses = []
+    
+    for course in courses:
+        course_name = course.get("name")
+        if not course_name:
+            merged_courses.append(course)
+            continue
+        
+        # Start with course copy
+        merged_course = dict(course)
+        
+        # Apply override if exists
+        if course_name in overrides:
+            override = overrides[course_name]
+            # Merge override fields
+            merged_course.update(override)
+        
+        # Apply defaults if not present
+        if "exposure" not in merged_course:
+            merged_course["exposure"] = "Mixed"
+        if "drainage" not in merged_course:
+            merged_course["drainage"] = "Average"
+        
+        merged_courses.append(merged_course)
+    
+    return merged_courses
+
+
 def load_courses():
     """Load courses from courses.json, fall back to demo courses if file is missing or invalid."""
     courses_file = os.path.join(os.path.dirname(__file__), "courses.json")
@@ -516,12 +585,13 @@ def load_courses():
                         valid_courses.append(normalized_course)
                     
                     if valid_courses:
-                        return valid_courses
+                        # Merge course overrides
+                        return merge_course_overrides(valid_courses)
     except (json.JSONDecodeError, IOError, OSError):
         pass
     
-    # Fall back to demo courses
-    return DEMO_COURSES
+    # Fall back to demo courses (merge overrides even for demo courses)
+    return merge_course_overrides(DEMO_COURSES)
 
 
 def find_course_by_name(course_name: str):
@@ -622,7 +692,8 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                         valid_courses.append(normalized_course)
                     
                     if valid_courses:
-                        return valid_courses
+                        # Merge course overrides
+                        return merge_course_overrides(valid_courses)
                 elif debug_info is not None:
                     debug_info["detected_format"] = "unknown"
         except (json.JSONDecodeError, IOError, OSError) as e:
@@ -3804,6 +3875,106 @@ async def debug_openai() -> Dict[str, Any]:
         result["client_created"] = True
     except Exception:
         result["client_created"] = False
+    
+    return result
+
+
+@app.get("/debug/course")
+async def debug_course(name: str = Query(None, description="Course name to inspect")) -> Dict[str, Any]:
+    """
+    Debug endpoint to inspect a course object and derived values used in scoring.
+    Returns raw course data, override fields, final merged result, and scoring-relevant fields.
+    """
+    if not name:
+        return {"error": "name parameter required"}
+    
+    # Load raw courses (before overrides)
+    raw_courses = []
+    for courses_path in [COURSES_PATH, COURSES_PATH_FALLBACK]:
+        if courses_path.exists():
+            try:
+                with open(courses_path, "r", encoding="utf-8") as f:
+                    raw_courses = json.load(f)
+                if isinstance(raw_courses, list):
+                    break
+            except Exception:
+                pass
+    
+    # Find raw course data
+    raw_course_data = None
+    if isinstance(raw_courses, list):
+        for course in raw_courses:
+            if isinstance(course, dict) and course.get("name") == name:
+                raw_course_data = dict(course)
+                break
+    
+    # Load overrides
+    overrides = load_course_overrides()
+    override_data = overrides.get(name)
+    
+    # Find the merged course (after overrides)
+    course_data = find_course_by_name(name)
+    
+    if not course_data:
+        return {
+            "found": False,
+            "name": name,
+            "message": "Course not found"
+        }
+    
+    # Extract scoring-relevant fields with defaults
+    popularity_tier = course_data.get("popularity_tier", "Medium")
+    difficulty = course_data.get("difficulty", "Medium")
+    price_tier = course_data.get("price_tier", "££")
+    area = course_data.get("area", "")
+    
+    # Get course attributes if available
+    course_attributes = get_course_attributes(name)
+    
+    result = {
+        "found": True,
+        "raw_course_data": raw_course_data,
+        "override_data": override_data if override_data else None,
+        "final_merged_data": course_data,
+        "override_applied": override_data is not None,
+        "defaults_applied": {
+            "exposure": course_data.get("exposure", "Mixed"),
+            "drainage": course_data.get("drainage", "Average")
+        },
+        "scoring_fields": {
+            "popularity_tier": {
+                "value": popularity_tier,
+                "default": "Medium",
+                "used_in": "calculate_course_pressure()",
+                "impact": "Base busyness score (Low=20, Medium=50, High=70)"
+            },
+            "difficulty": {
+                "value": difficulty,
+                "default": "Medium",
+                "used_in": "calculate_handicap_suitability_score(), compute_playability()",
+                "impact": "Base suitability score (Easy=80, Medium=60, Hard=40)"
+            },
+            "price_tier": {
+                "value": price_tier,
+                "default": "££",
+                "used_in": "compute_playability(), get_price_label()",
+                "impact": "Price factor score (informational only, 0% weight)"
+            },
+            "area": {
+                "value": area,
+                "default": "''",
+                "used_in": "Display/search only, not scoring",
+                "impact": "None (display only)"
+            }
+        },
+        "unused_fields": {
+            "beginner_friendly": {
+                "value": course_data.get("beginner_friendly"),
+                "status": "Present in JSON but not used in scoring logic"
+            }
+        },
+        "course_attributes": course_attributes if course_attributes else None
+    }
     
     return result
 
