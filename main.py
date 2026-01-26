@@ -4689,220 +4689,224 @@ HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
 Return ONLY valid JSON matching the exact schema above. No markdown, no code blocks, no explanations."""
             logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
         except Exception as e:
-        # If prompt building fails (e.g., JSON serialization error), log and return None
-        # build_final_copy will fall back to templates
-        logger.error(f"Failed to build LLM prompt (request_id={request_id}): {str(e)}", exc_info=True)
-        # Return None instead of raising - build_final_copy will fall back to templates
-        return None
-    
-    try:
-        # First attempt
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client_with_timeout.chat.completions.create,
-                    model=llm_model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary. Return pure JSON matching the exact schema provided. Use UK tone and spelling. Avoid robotic commands. Keep sentences short and friendly. No dashes used as punctuation. Do not repeat section titles in bullet text."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=max_output_tokens,
-                    temperature=0.2,
-                    response_format={"type": "json_object"}
-                ),
-                timeout=llm_timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            # Retry once on timeout (sleep 250ms, then retry)
-            logger.warning(f"LLM timeout on first attempt{request_id_str}, retrying after 250ms")
-            await asyncio.sleep(0.25)
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    client_with_timeout.chat.completions.create,
-                    model=llm_model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary. Return pure JSON matching the exact schema provided. Use UK tone and spelling. Avoid robotic commands. Keep sentences short and friendly. No dashes used as punctuation. Do not repeat section titles in bullet text."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=max_output_tokens,
-                    temperature=0.2,
-                    response_format={"type": "json_object"}
-                ),
-                timeout=llm_timeout_seconds
-            )
-        
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.info(f"LLM_OK: request_id={request_id} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-        
-        response_text = response.choices[0].message.content.strip()
-        llm_raw_preview = response_text[:200] if response_text else ""
-        
-        # Parse JSON response with robust salvage
-        parsed_data = parse_llm_payload(response_text)
-        parse_stage = "json_ok"  # Default, will be updated if salvage was used
-        
-        if parsed_data is None:
-            elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM parse failed: all salvage attempts failed duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            # If prompt building fails (e.g., JSON serialization error), log and return None
+            # build_final_copy will fall back to templates
+            logger.error(f"Failed to build LLM prompt (request_id={request_id}): {str(e)}", exc_info=True)
             # Return None instead of raising - build_final_copy will fall back to templates
             return None
         
-        # Determine parse stage (check if it was direct JSON or salvage)
         try:
-            json.loads(response_text.strip())
-            parse_stage = "json_ok"
-        except json.JSONDecodeError:
-            # Check if it was extracted JSON
-            first_brace = response_text.find('{')
-            last_brace = response_text.rfind('}')
-            if first_brace != -1 and last_brace != -1:
-                try:
-                    json.loads(response_text[first_brace:last_brace + 1])
-                    parse_stage = "json_extracted_ok"
-                except json.JSONDecodeError:
+            # First attempt
+            try:
+                response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    client_with_timeout.chat.completions.create,
+                    model=llm_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary. Return pure JSON matching the exact schema provided. Use UK tone and spelling. Avoid robotic commands. Keep sentences short and friendly. No dashes used as punctuation. Do not repeat section titles in bullet text."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=max_output_tokens,
+                    temperature=0.2,
+                    response_format={"type": "json_object"}
+                ),
+                timeout=llm_timeout_seconds
+            )
+            except asyncio.TimeoutError:
+                # Retry once on timeout (sleep 250ms, then retry)
+                logger.warning(f"LLM timeout on first attempt{request_id_str}, retrying after 250ms")
+                await asyncio.sleep(0.25)
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        client_with_timeout.chat.completions.create,
+                        model=llm_model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a friendly, calm 'pro shop' person rewriting golf course assessment text. You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary. Return pure JSON matching the exact schema provided. Use UK tone and spelling. Avoid robotic commands. Keep sentences short and friendly. No dashes used as punctuation. Do not repeat section titles in bullet text."
+                            },
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=max_output_tokens,
+                        temperature=0.2,
+                        response_format={"type": "json_object"}
+                    ),
+                    timeout=llm_timeout_seconds
+                )
+            
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"LLM_OK: request_id={request_id} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+            
+            response_text = response.choices[0].message.content.strip()
+            llm_raw_preview = response_text[:200] if response_text else ""
+            
+            # Parse JSON response with robust salvage
+            parsed_data = parse_llm_payload(response_text)
+            parse_stage = "json_ok"  # Default, will be updated if salvage was used
+            
+            if parsed_data is None:
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                logger.error(f"LLM parse failed: all salvage attempts failed duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+                # Return None instead of raising - build_final_copy will fall back to templates
+                return None
+            
+            # Determine parse stage (check if it was direct JSON or salvage)
+            try:
+                json.loads(response_text.strip())
+                parse_stage = "json_ok"
+            except json.JSONDecodeError:
+                # Check if it was extracted JSON
+                first_brace = response_text.find('{')
+                last_brace = response_text.rfind('}')
+                if first_brace != -1 and last_brace != -1:
+                    try:
+                        json.loads(response_text[first_brace:last_brace + 1])
+                        parse_stage = "json_extracted_ok"
+                    except json.JSONDecodeError:
+                        parse_stage = "plaintext_salvage_ok"
+                else:
                     parse_stage = "plaintext_salvage_ok"
-            else:
-                parse_stage = "plaintext_salvage_ok"
-        
-        # Post-process: map keys, fill defaults, enforce style rules
-        rewritten_data = post_process_llm_output(parsed_data, deterministic_payload)
-        
-        # Map Format B (legacy) to Format A if needed
-        # Format B keys: headline, best_move, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
-        # Format A keys: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
-        
-        # Check if we have Format B (legacy format)
-        has_format_b = (
-            "headline" in rewritten_data or
-            "what_you_could_do_bullets" in rewritten_data or
-            "instead_activities" in rewritten_data or
-            "if_you_play_tips" in rewritten_data
-        )
-        
-        # Map Format B to Format A
-        if has_format_b:
-            # Map headline to banner_summary_line if banner_summary_line is missing
-            if "headline" in rewritten_data and "banner_summary_line" not in rewritten_data:
-                rewritten_data["banner_summary_line"] = rewritten_data["headline"]
             
-            # Map what_you_could_do_bullets to what_you_could_do if needed
-            if "what_you_could_do_bullets" in rewritten_data and "what_you_could_do" not in rewritten_data:
-                rewritten_data["what_you_could_do"] = rewritten_data["what_you_could_do_bullets"]
+            # Post-process: map keys, fill defaults, enforce style rules
+            rewritten_data = post_process_llm_output(parsed_data, deterministic_payload)
             
-            # Map instead_activities to if_not_try_this_instead if needed
-            if "instead_activities" in rewritten_data:
-                instead_val = rewritten_data["instead_activities"]
-                if isinstance(instead_val, list):
-                    # Convert list to string (take first item or join)
-                    rewritten_data["if_not_try_this_instead"] = instead_val[0] if instead_val else ""
-                elif isinstance(instead_val, str):
-                    rewritten_data["if_not_try_this_instead"] = instead_val
+            # Map Format B (legacy) to Format A if needed
+            # Format B keys: headline, best_move, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
+            # Format A keys: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
             
-            # Map if_you_play_tips to but_if_you_do_play if needed
-            if "if_you_play_tips" in rewritten_data and "but_if_you_do_play" not in rewritten_data:
-                tips_val = rewritten_data["if_you_play_tips"]
-                if isinstance(tips_val, list):
-                    rewritten_data["but_if_you_do_play"] = tips_val
-                elif isinstance(tips_val, str):
-                    rewritten_data["but_if_you_do_play"] = [tips_val] if tips_val else []
-        
-        # Validate Format A required keys (lenient - only reject truly unusable output)
-        # Format A required keys:
-        # - banner_summary_line (string)
-        # - what_you_could_do_bullets (list[str]) OR what_you_could_do (list[str])
-        # - if_not_try_this_instead (string OR list[str])
-        # - but_if_you_do_play (list[str])
-        
-        critical_missing = []
-        
-        # Check banner_summary_line (can derive from headline if missing)
-        if "banner_summary_line" not in rewritten_data:
-            if "headline" in rewritten_data and rewritten_data["headline"]:
-                rewritten_data["banner_summary_line"] = rewritten_data["headline"]
-            else:
-                critical_missing.append("banner_summary_line")
-        
-        # Check what_you_could_do_bullets (accept what_you_could_do as alternative)
-        if "what_you_could_do_bullets" not in rewritten_data:
-            if "what_you_could_do" in rewritten_data and isinstance(rewritten_data["what_you_could_do"], list):
-                rewritten_data["what_you_could_do_bullets"] = rewritten_data["what_you_could_do"]
-            elif "what_you_could_do" in rewritten_data and rewritten_data["what_you_could_do"]:
-                # Single value, convert to list
-                rewritten_data["what_you_could_do_bullets"] = [rewritten_data["what_you_could_do"]]
-            else:
-                critical_missing.append("what_you_could_do_bullets")
-        
-        # Check if_not_try_this_instead (accept string or list)
-        if "if_not_try_this_instead" not in rewritten_data:
-            critical_missing.append("if_not_try_this_instead")
-        elif isinstance(rewritten_data["if_not_try_this_instead"], list):
-            # Convert list to string (take first item)
-            rewritten_data["if_not_try_this_instead"] = rewritten_data["if_not_try_this_instead"][0] if rewritten_data["if_not_try_this_instead"] else ""
-        
-        # Check but_if_you_do_play (must be list)
-        if "but_if_you_do_play" not in rewritten_data:
-            critical_missing.append("but_if_you_do_play")
-        elif not isinstance(rewritten_data["but_if_you_do_play"], list):
-            # Convert string to list
-            rewritten_data["but_if_you_do_play"] = [rewritten_data["but_if_you_do_play"]] if rewritten_data["but_if_you_do_play"] else []
-        
-        # Only reject if critical keys are missing (truly unusable)
-        if critical_missing:
+            # Check if we have Format B (legacy format)
+            has_format_b = (
+                "headline" in rewritten_data or
+                "what_you_could_do_bullets" in rewritten_data or
+                "instead_activities" in rewritten_data or
+                "if_you_play_tips" in rewritten_data
+            )
+            
+            # Map Format B to Format A
+            if has_format_b:
+                # Map headline to banner_summary_line if banner_summary_line is missing
+                if "headline" in rewritten_data and "banner_summary_line" not in rewritten_data:
+                    rewritten_data["banner_summary_line"] = rewritten_data["headline"]
+                
+                # Map what_you_could_do_bullets to what_you_could_do if needed
+                if "what_you_could_do_bullets" in rewritten_data and "what_you_could_do" not in rewritten_data:
+                    rewritten_data["what_you_could_do"] = rewritten_data["what_you_could_do_bullets"]
+                
+                # Map instead_activities to if_not_try_this_instead if needed
+                if "instead_activities" in rewritten_data:
+                    instead_val = rewritten_data["instead_activities"]
+                    if isinstance(instead_val, list):
+                        # Convert list to string (take first item or join)
+                        rewritten_data["if_not_try_this_instead"] = instead_val[0] if instead_val else ""
+                    elif isinstance(instead_val, str):
+                        rewritten_data["if_not_try_this_instead"] = instead_val
+                
+                # Map if_you_play_tips to but_if_you_do_play if needed
+                if "if_you_play_tips" in rewritten_data and "but_if_you_do_play" not in rewritten_data:
+                    tips_val = rewritten_data["if_you_play_tips"]
+                    if isinstance(tips_val, list):
+                        rewritten_data["but_if_you_do_play"] = tips_val
+                    elif isinstance(tips_val, str):
+                        rewritten_data["but_if_you_do_play"] = [tips_val] if tips_val else []
+            
+            # Validate Format A required keys (lenient - only reject truly unusable output)
+            # Format A required keys:
+            # - banner_summary_line (string)
+            # - what_you_could_do_bullets (list[str]) OR what_you_could_do (list[str])
+            # - if_not_try_this_instead (string OR list[str])
+            # - but_if_you_do_play (list[str])
+            
+            critical_missing = []
+            
+            # Check banner_summary_line (can derive from headline if missing)
+            if "banner_summary_line" not in rewritten_data:
+                if "headline" in rewritten_data and rewritten_data["headline"]:
+                    rewritten_data["banner_summary_line"] = rewritten_data["headline"]
+                else:
+                    critical_missing.append("banner_summary_line")
+            
+            # Check what_you_could_do_bullets (accept what_you_could_do as alternative)
+            if "what_you_could_do_bullets" not in rewritten_data:
+                if "what_you_could_do" in rewritten_data and isinstance(rewritten_data["what_you_could_do"], list):
+                    rewritten_data["what_you_could_do_bullets"] = rewritten_data["what_you_could_do"]
+                elif "what_you_could_do" in rewritten_data and rewritten_data["what_you_could_do"]:
+                    # Single value, convert to list
+                    rewritten_data["what_you_could_do_bullets"] = [rewritten_data["what_you_could_do"]]
+                else:
+                    critical_missing.append("what_you_could_do_bullets")
+            
+            # Check if_not_try_this_instead (accept string or list)
+            if "if_not_try_this_instead" not in rewritten_data:
+                critical_missing.append("if_not_try_this_instead")
+            elif isinstance(rewritten_data["if_not_try_this_instead"], list):
+                # Convert list to string (take first item)
+                rewritten_data["if_not_try_this_instead"] = rewritten_data["if_not_try_this_instead"][0] if rewritten_data["if_not_try_this_instead"] else ""
+            
+            # Check but_if_you_do_play (must be list)
+            if "but_if_you_do_play" not in rewritten_data:
+                critical_missing.append("but_if_you_do_play")
+            elif not isinstance(rewritten_data["but_if_you_do_play"], list):
+                # Convert string to list
+                rewritten_data["but_if_you_do_play"] = [rewritten_data["but_if_you_do_play"]] if rewritten_data["but_if_you_do_play"] else []
+            
+            # Only reject if critical keys are missing (truly unusable)
+            if critical_missing:
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                logger.error(f"LLM missing critical keys after mapping: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+                # Return None instead of raising - build_final_copy will fall back to templates
+                return None
+            
+            # Check for blocklisted phrases (after cleaning, so should be rare)
+            blocklist = ["Play 18.", "Enjoy your round.", "Conditions are suitable today."]
+            blocklist_found = []
+            all_text = " ".join([
+                rewritten_data.get("headline", ""),
+                rewritten_data.get("banner_summary_line", ""),
+                rewritten_data.get("best_move", ""),
+                " ".join(rewritten_data.get("why_bullets", [])),
+                " ".join(rewritten_data.get("what_you_could_do", [])),
+                rewritten_data.get("if_not_try_this_instead", ""),
+                " ".join(rewritten_data.get("but_if_you_do_play", []))
+            ])
+            for phrase in blocklist:
+                if phrase in all_text:
+                    blocklist_found.append(phrase)
+            
+            if blocklist_found:
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                logger.warning(f"LLM blocklist violation (cleaned): {blocklist_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+                # Don't raise error, just log warning - post-processor should have cleaned it
+            
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM missing critical keys after mapping: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            
+            # Add timing and parse info to response metadata (for debug tracking)
+            rewritten_data["_llm_metadata"] = {
+                "duration_ms": elapsed_ms,
+                "timeout_seconds": llm_timeout_seconds,
+                "model": llm_model,
+                "parse_stage": parse_stage,
+                "raw_preview": llm_raw_preview,
+                "missing_keys": missing_keys if missing_keys else []
+            }
+            
+            return rewritten_data
+            
+        except asyncio.TimeoutError:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"LLM request timed out{request_id_str} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
             # Return None instead of raising - build_final_copy will fall back to templates
             return None
-        
-        # Check for blocklisted phrases (after cleaning, so should be rare)
-        blocklist = ["Play 18.", "Enjoy your round.", "Conditions are suitable today."]
-        blocklist_found = []
-        all_text = " ".join([
-            rewritten_data.get("headline", ""),
-            rewritten_data.get("banner_summary_line", ""),
-            rewritten_data.get("best_move", ""),
-            " ".join(rewritten_data.get("why_bullets", [])),
-            " ".join(rewritten_data.get("what_you_could_do", [])),
-            rewritten_data.get("if_not_try_this_instead", ""),
-            " ".join(rewritten_data.get("but_if_you_do_play", []))
-        ])
-        for phrase in blocklist:
-            if phrase in all_text:
-                blocklist_found.append(phrase)
-        
-        if blocklist_found:
+        except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.warning(f"LLM blocklist violation (cleaned): {blocklist_found} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-            # Don't raise error, just log warning - post-processor should have cleaned it
-        
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        
-        # Add timing and parse info to response metadata (for debug tracking)
-        rewritten_data["_llm_metadata"] = {
-            "duration_ms": elapsed_ms,
-            "timeout_seconds": llm_timeout_seconds,
-            "model": llm_model,
-            "parse_stage": parse_stage,
-            "raw_preview": llm_raw_preview,
-            "missing_keys": missing_keys if missing_keys else []
-        }
-        
-        return rewritten_data
-        
-    except asyncio.TimeoutError:
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.error(f"LLM request timed out{request_id_str} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-        # Return None instead of raising - build_final_copy will fall back to templates
-        return None
-    except Exception as e:
-        elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.error(f"LLM API error{request_id_str}: {str(e)} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-        # Return None instead of raising - build_final_copy will fall back to templates
+            logger.error(f"LLM API error{request_id_str}: {str(e)} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+            # Return None instead of raising - build_final_copy will fall back to templates
+            return None
+    except Exception as outer_exception:
+        # Catch-all for any unexpected exceptions in the function (outside the inner try blocks)
+        logger.error(f"Unexpected error in llm_rewrite_assessment_copy (request_id={request_id}): {str(outer_exception)}", exc_info=True)
         return None
 
 
