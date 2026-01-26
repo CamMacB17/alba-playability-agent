@@ -401,18 +401,21 @@ def get_git_commit() -> str:
 BUILD_TIME_UTC = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 GIT_COMMIT = get_git_commit()
 
-# Feature flag and API key for OpenAI
-LLM_SUMMARY_ENABLED = os.getenv("LLM_SUMMARY", "false").lower() == "true"
+# OpenAI API key - always enabled if present
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Initialize OpenAI client if API key is available
+# Initialize OpenAI client if API key is available (always enabled by default)
 openai_client = None
-if OPENAI_API_KEY and LLM_SUMMARY_ENABLED:
+if OPENAI_API_KEY:
     try:
         from openai import AsyncOpenAI
         openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=10.0)
+        logger.info("LLM enabled: default-on (OPENAI_API_KEY found)")
     except ImportError:
+        logger.warning("OpenAI package not installed, LLM disabled")
         openai_client = None
+else:
+    logger.info("LLM disabled: OPENAI_API_KEY not found")
 
 # Alba app download URLs
 ALBA_IOS_URL = os.getenv("ALBA_IOS_URL", "https://apps.apple.com/gb/app/alba-find-golfers-book-games/id6749025396")
@@ -3301,35 +3304,29 @@ Write the paragraph following the exact structure above."""
         raise
 
 
-async def generate_explanation(assessment_data, force_llm=False, llm_effective_enabled=False) -> Tuple[str, str]:
+async def generate_explanation(assessment_data, llm_effective_enabled=False) -> Tuple[str, str]:
     """
-    Generate explanation paragraph. Uses LLM if enabled and available, otherwise uses deterministic version.
+    Generate explanation paragraph. Always uses LLM if available, otherwise falls back to deterministic version.
     
     assessment_data: dict containing all required fields for structured LLM input
-    force_llm: parsed llm query parameter (boolean) - when true, forces LLM call regardless of LLM_SUMMARY
     llm_effective_enabled: computed effective LLM enabled status (for badge display)
     
     Returns: tuple of (explanation_text, summary_mode)
         summary_mode: "LLM", "Deterministic (LLM failed)", or "Deterministic"
     """
-    # LLM should run if:
-    # 1. force_llm is true (from query parameter) AND openai_client exists, OR
-    # 2. LLM_SUMMARY_ENABLED is true AND openai_client exists
-    # force_llm takes precedence over LLM_SUMMARY_ENABLED
-    use_llm = bool(openai_client) and (force_llm or LLM_SUMMARY_ENABLED)
-    
-    if use_llm:
+    # Always try LLM if openai_client is available
+    if openai_client:
         # Log that OpenAI call is being executed
         logger.info("LLM: executing OpenAI call")
         
-        # Try LLM, fall back silently to deterministic on any error
+        # Try LLM, fall back gracefully to deterministic on any error
         try:
             explanation = await generate_explanation_llm(assessment_data)
             return explanation, "LLM"
         except Exception as e:
-            # Log the exception message
+            # Log the exception message (without stack trace to avoid leaking secrets)
             logger.error(f"LLM: failed: {str(e)}")
-            # Fall back silently to deterministic on any error
+            # Fall back gracefully to deterministic on any error
             pass
     
     # Use deterministic explanation
@@ -3348,7 +3345,7 @@ async def generate_explanation(assessment_data, force_llm=False, llm_effective_e
         None  # tomorrow_forecast not needed for deterministic
     )
     
-    # Determine mode: if llm_effective_enabled was true but call failed, show "Deterministic (LLM failed)"
+    # Determine mode: if LLM was enabled but call failed, show "Deterministic (LLM failed)"
     # Otherwise show "Deterministic"
     if llm_effective_enabled:
         return deterministic_explanation, "Deterministic (LLM failed)"
@@ -3360,16 +3357,16 @@ async def generate_explanation(assessment_data, force_llm=False, llm_effective_e
 async def debug_env() -> Dict[str, Any]:
     """
     Debug endpoint to check environment variables.
-    Returns JSON with OpenAI API key status, LLM_SUMMARY flag value, and effective LLM enabled status.
+    Returns JSON with OpenAI API key status and LLM enabled status.
+    LLM is always enabled if OPENAI_API_KEY is present.
     """
-    # Calculate effective LLM enabled status (matches runtime decision when llm=1 is passed)
-    # When llm=1 is passed, LLM runs if OPENAI_API_KEY exists (regardless of LLM_SUMMARY env var)
-    llm_effective_enabled = bool(OPENAI_API_KEY)
+    # LLM is always enabled if OPENAI_API_KEY exists
+    llm_enabled = bool(OPENAI_API_KEY) and bool(openai_client)
     
     return {
         "has_openai_key": bool(OPENAI_API_KEY),
-        "llm_summary_flag": os.getenv("LLM_SUMMARY", ""),
-        "llm_effective_enabled": llm_effective_enabled
+        "llm_enabled": llm_enabled,
+        "openai_client_initialized": bool(openai_client)
     }
 
 
@@ -4319,13 +4316,10 @@ async def read_root():
     """
 
 
-async def render_assessment_results(course: str, handicap: int = None, golf_experience: str = "Regular", day: str = None, time_of_day: str = None, force_llm: bool = False, llm_effective_enabled: bool = False, llm_raw=None, request_id: str = None, debug_mode: bool = False):
+async def render_assessment_results(course: str, handicap: int = None, golf_experience: str = "Regular", day: str = None, time_of_day: str = None, request_id: str = None, debug_mode: bool = False):
     """
     Shared function to calculate ratings and render assessment results.
     
-    force_llm: parsed llm query parameter (boolean)
-    llm_effective_enabled: computed effective LLM enabled status
-    llm_raw: raw llm query parameter value for debugging
     request_id: unique request identifier for logging
     """
     # Find the course to get coordinates and properties
@@ -4437,9 +4431,10 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     recommendations = playability["recommendations"]
     factor_scores = playability["factor_scores"]
     
-    # Try LLM rewrite if enabled (only rewrites for clarity, doesn't invent)
+    # Always try LLM rewrite if available (only rewrites for clarity, doesn't invent)
     llm_rewrite_succeeded = False
-    if llm_effective_enabled:
+    llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
+    if openai_client:
         try:
             deterministic_data = {
                 "reasons": reasons,
@@ -4455,8 +4450,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             llm_rewrite_succeeded = True
             logger.info(f"LLM rewrite succeeded for reasons/recommendations")
         except Exception as e:
-            # Fallback to deterministic on any error
-            logger.error(f"LLM rewrite failed, using deterministic: {str(e)}", exc_info=True)
+            # Fallback gracefully to deterministic on any error (don't leak secrets)
+            logger.error(f"LLM rewrite failed, using deterministic: {str(e)}")
             # reasons and recommendations remain as deterministic versions
     
     # Get suggested plan from tier
@@ -5831,31 +5826,6 @@ async def view_feedback(credentials: HTTPBasicCredentials = Depends(verify_feedb
         return PlainTextResponse(f"Error reading feedback: {str(e)}\n", status_code=500)
 
 
-def parse_llm_parameter(llm_value) -> bool:
-    """
-    Parse llm query parameter safely.
-    Treats 1, "1", "true", "True", "yes" as True. Everything else False.
-    """
-    if llm_value is None:
-        return False
-    
-    # Convert to string for comparison
-    llm_str = str(llm_value).strip().lower()
-    
-    # Check for true values
-    if llm_str in ["1", "true", "yes"]:
-        return True
-    
-    # Check if it's the integer 1
-    try:
-        if int(llm_value) == 1:
-            return True
-    except (ValueError, TypeError):
-        pass
-    
-    return False
-
-
 @app.get("/assess", response_class=HTMLResponse)
 async def assess_get(
     course: str = Query(None),
@@ -5863,11 +5833,11 @@ async def assess_get(
     golf_experience: str = Query("Regular"),
     day: str = Query(None),
     time_of_day: str = Query(None),
-    llm: str = Query(None, description="Set to 1, '1', 'true', 'True', or 'yes' to force LLM summary"),
     debug: str = Query(None, description="Set to 1 to show debug information")
 ):
     """
     Handle GET request for assessment results.
+    LLM is always enabled if OPENAI_API_KEY is present (no query params needed).
     """
     # Validate required parameters
     # Check if course is missing or blank (after stripping whitespace)
@@ -5886,26 +5856,21 @@ async def assess_get(
     if golf_experience not in ["Beginner", "Regular", "Confident"]:
         golf_experience = "Regular"
     
-    # Parse llm parameter safely
-    llm_raw = llm
-    llm_force = parse_llm_parameter(llm)
-    
     # Parse debug parameter
     debug_mode = debug == "1"
     
     # Generate unique request ID for this request
     request_id = str(uuid4())
     
-    # Compute llm_effective_enabled = has_openai_key and (llm_force or env_flag_true)
+    # LLM is always enabled if OPENAI_API_KEY exists (no query params needed)
     has_openai_key = bool(OPENAI_API_KEY)
-    llm_effective_enabled = has_openai_key and (llm_force or LLM_SUMMARY_ENABLED)
     
     # Log assessment start with debug info
-    logger.info(f"ASSESS: request_id={request_id} llm_query={llm_raw} llm_flag={LLM_SUMMARY_ENABLED} has_key={has_openai_key} effective={llm_effective_enabled}")
+    logger.info(f"ASSESS: request_id={request_id} has_key={has_openai_key} llm_enabled={bool(openai_client)}")
     
     # Render results with error handling
     try:
-        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, llm_force, llm_effective_enabled, llm_raw, request_id, debug_mode)
+        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode)
     except Exception as e:
         logger.error(f"Error rendering assessment results: {str(e)}", exc_info=True)
         # Return error page
