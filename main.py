@@ -1280,6 +1280,8 @@ def get_suggested_plan(playability_tier: str) -> str:
     """
     Map playability_tier to suggested plan.
     Returns suggested plan string based on tier.
+    NOTE: This function is kept for backward compatibility.
+    Use generate_base_recommendation() for new two-stage recommendation system.
     """
     if playability_tier == "Great":
         return "18 holes"
@@ -1289,6 +1291,163 @@ def get_suggested_plan(playability_tier: str) -> str:
         return "9 holes or a range session"
     else:  # Rough
         return "Range and short game (or simulator)"
+
+
+def generate_base_recommendation(playability_tier: str) -> Dict[str, str]:
+    """
+    Stage A: Pick a base plan from tier only.
+    
+    Returns dict with:
+    - action: Base action string
+    - reason: Base reason string
+    """
+    if playability_tier == "Great":
+        return {
+            "action": "Play 18 holes",
+            "reason": "Conditions are ideal for a full round"
+        }
+    elif playability_tier == "Decent":
+        return {
+            "action": "Play 18 holes",
+            "reason": "Conditions are good for a full round"
+        }
+    elif playability_tier == "Challenging":
+        return {
+            "action": "Play 9 holes or play with adjustments",
+            "reason": "Conditions add some challenge, so a shorter round or adjusted expectations work better"
+        }
+    else:  # Rough
+        return {
+            "action": "Range, short game, or simulator",
+            "reason": "Conditions are tough, so practice facilities offer better value today"
+        }
+
+
+def personalize_recommendation(
+    base_recommendation: Dict[str, str],
+    playability_tier: str,
+    confidence: str,
+    handicap: int = None,
+    course_difficulty: str = None,
+    course_pressure: str = None,
+    recommended_holes: int = None,
+    daylight_label: str = None
+) -> List[Dict[str, str]]:
+    """
+    Stage B: Personalize plan using confidence, handicap, course difficulty, course pressure, daylight.
+    
+    Rules:
+    1) Handicap is optional. If missing, use confidence only.
+    2) Never recommend "wait for better conditions" to Confident OR handicap <= 8 unless tier == Rough.
+    3) Beginner should get Range/Short-game suggestion earlier (tier Challenging).
+    4) Course difficulty only changes advice when tier is Challenging or Rough.
+    5) If daylight suggests 9 holes, that should override "play 18" even on Great/Decent.
+    
+    Returns: List of recommendation dicts with "action" and "reason" keys.
+    Tone: Pro giving options and trade-offs, not telling people off.
+    """
+    recommendations = []
+    
+    # Rule 5: Daylight override - if daylight suggests 9 holes, override base plan
+    if recommended_holes == 9 and playability_tier in ["Great", "Decent"]:
+        recommendations.append({
+            "action": "Play 9 holes",
+            "reason": "Daylight is tight, so 9 holes ensures you finish comfortably without rushing"
+        })
+        # Still include base recommendation as alternative
+        recommendations.append({
+            "action": base_recommendation["action"],
+            "reason": f"Alternatively, {base_recommendation['reason'].lower()} if you can start earlier"
+        })
+        return recommendations
+    
+    # Rule 3: Beginner gets Range/Short-game earlier (tier Challenging)
+    if playability_tier == "Challenging" and confidence == "Beginner":
+        recommendations.append({
+            "action": "Range session or short game practice",
+            "reason": "These conditions work better for practice when you're building consistency—you'll get more value from focused work than fighting the elements"
+        })
+        # Also offer adjusted play option
+        recommendations.append({
+            "action": "If you do play, plan for 9 holes with adjusted expectations",
+            "reason": "A shorter round lets you focus on technique without the pressure of scoring in challenging conditions"
+        })
+        return recommendations
+    
+    # Rule 2: Never recommend "wait" to Confident OR handicap <= 8 unless tier == Rough
+    should_avoid_wait = (confidence == "Confident" or (handicap is not None and handicap <= 8))
+    
+    # Rule 4: Course difficulty only changes advice when tier is Challenging or Rough
+    if playability_tier in ["Challenging", "Rough"]:
+        if course_difficulty == "Hard":
+            if confidence == "Beginner" or (handicap is not None and handicap > 18):
+                recommendations.append({
+                    "action": "Consider an easier course today",
+                    "reason": "A challenging course combined with tough conditions stacks the deck—an easier layout gives you a better chance to build confidence"
+                })
+            elif should_avoid_wait:
+                recommendations.append({
+                    "action": base_recommendation["action"],
+                    "reason": f"{base_recommendation['reason']}, though a harder course adds extra challenge—manage expectations and focus on shot selection"
+                })
+            else:
+                recommendations.append({
+                    "action": "Consider waiting for better conditions or trying an easier course",
+                    "reason": "A challenging course combined with tough conditions makes it harder to enjoy your round—either wait for better weather or pick an easier layout"
+                })
+        elif course_difficulty == "Easy":
+            if should_avoid_wait:
+                recommendations.append({
+                    "action": base_recommendation["action"],
+                    "reason": f"{base_recommendation['reason']}, and an easier course helps you manage the conditions better"
+                })
+            else:
+                recommendations.append({
+                    "action": base_recommendation["action"],
+                    "reason": f"{base_recommendation['reason']}, and an easier course helps you manage the conditions better"
+                })
+        else:  # Medium difficulty
+            if should_avoid_wait:
+                recommendations.append({
+                    "action": base_recommendation["action"],
+                    "reason": base_recommendation["reason"]
+                })
+            else:
+                recommendations.append({
+                    "action": base_recommendation["action"],
+                    "reason": base_recommendation["reason"]
+                })
+    else:  # Great or Decent
+        # Course difficulty doesn't matter for Great/Decent tiers
+        recommendations.append({
+            "action": base_recommendation["action"],
+            "reason": base_recommendation["reason"]
+        })
+    
+    # Add course pressure adjustments (for all tiers)
+    if course_pressure in ["Busy", "Very busy"]:
+        if playability_tier in ["Great", "Decent"]:
+            recommendations.append({
+                "action": "Book early or late to avoid peak times",
+                "reason": "The course will be busy, so quieter slots help you maintain rhythm and avoid waiting"
+            })
+        else:  # Challenging or Rough
+            recommendations.append({
+                "action": "Consider quieter times if you do play",
+                "reason": "Busy conditions add extra pressure when conditions are already challenging—quieter times give you more space to manage your game"
+            })
+    elif course_pressure in ["Quiet", "Moderate"]:
+        if playability_tier in ["Challenging", "Rough"]:
+            recommendations.append({
+                "action": "Quieter conditions help if you do decide to play",
+                "reason": "Less course pressure gives you more time to manage the challenging conditions without feeling rushed"
+            })
+    
+    # Ensure at least one recommendation
+    if not recommendations:
+        recommendations.append(base_recommendation)
+    
+    return recommendations
 
 
 def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier):
@@ -1509,99 +1668,9 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     # Get decision classification for structured output and AI interpretation
     decision_classification = get_decision_classification(playability_tier)
     
-    # Generate recommendations based on factor thresholds
-    # Use neutral phrasing when handicap is None, tailored phrasing when provided
-    if playability_tier in ["Great", "Decent"]:
-        # Play recommendations based on threshold scores
-        if factor_scores["weather"] >= 100 and handicap is not None and factor_scores["suitability"] >= 80:
-            recommendations.append({
-                "action": "Consider a personal best attempt",
-                "reason": f"Dry weather and conditions suit your {handicap} handicap, making this a good day for a personal best attempt"
-            })
-        elif factor_scores["busyness"] >= 70:
-            recommendations.append({
-                "action": "Any time window should work well",
-                "reason": f"Course pressure is {busyness_label.lower()}, so any time works without long waits"
-            })
-        else:
-            recommendations.append({
-                "action": "Plan for a social round",
-                "reason": f"{weather_label.capitalize()} weather and {busyness_label.lower()} course pressure make this good for a social round"
-            })
-    else:  # Challenging or Rough
-        # Recommendations based on lowest scoring factors (threshold-based)
-        if not daylight_feasible:
-            if handicap is not None:
-                recommendations.append({
-                    "action": "Try booking an earlier tee time tomorrow",
-                    "reason": f"Finishing in daylight avoids rushed shots and helps maintain form"
-                })
-            else:
-                recommendations.append({
-                    "action": "Try booking an earlier tee time tomorrow",
-                    "reason": f"Finishing in daylight avoids rushed shots and helps maintain form"
-                })
-        elif factor_scores["weather"] < 50:  # Threshold: weather score below 50
-            if weather_label in ["Rain", "Showers"]:
-                if handicap is not None:
-                    recommendations.append({
-                        "action": "Check tomorrow's forecast for better conditions",
-                        "reason": f"{weather_label.lower().capitalize()} conditions tend to feel tougher if you're still building consistency"
-                    })
-                else:
-                    recommendations.append({
-                        "action": "Check tomorrow's forecast for better conditions",
-                        "reason": f"{weather_label.lower().capitalize()} conditions affect ball flight and visibility"
-                    })
-            elif weather_label == "Windy":
-                if handicap is not None:
-                    recommendations.append({
-                        "action": "Check tomorrow's forecast for better conditions",
-                        "reason": f"Windy conditions tend to feel tougher if you're still building consistency"
-                    })
-                else:
-                    recommendations.append({
-                        "action": "Check tomorrow's forecast for better conditions",
-                        "reason": f"Windy conditions significantly affect ball flight and distance control"
-                    })
-            elif weather_label in ["Cold", "Very cold"]:
-                if handicap is not None:
-                    recommendations.append({
-                        "action": "Check tomorrow's forecast for better conditions",
-                        "reason": f"{weather_label.lower().capitalize()} conditions tend to feel tougher if you're still building consistency"
-                    })
-                else:
-                    recommendations.append({
-                        "action": "Check tomorrow's forecast for better conditions",
-                        "reason": f"{weather_label.lower().capitalize()} conditions reduce ball distance and affect swing flexibility"
-                    })
-        elif factor_scores["ground"] < 50:  # Threshold: ground score below 50
-            if handicap is not None:
-                recommendations.append({
-                    "action": "Consider waiting for firmer ground conditions",
-                    "reason": f"Softer ground tends to feel tougher if you're still building consistency, as approach shots won't roll or bounce as expected"
-                })
-            else:
-                recommendations.append({
-                    "action": "Consider waiting for firmer ground conditions",
-                    "reason": f"Softer ground affects ball roll and bounce, making distance control harder"
-                })
-        elif factor_scores["busyness"] < 50:  # Threshold: busyness score below 50
-            if handicap is not None:
-                recommendations.append({
-                    "action": "Try booking at a quieter time, like early morning or late afternoon",
-                    "reason": f"Quieter times help maintain tempo and rhythm between shots"
-                })
-            else:
-                recommendations.append({
-                    "action": "Try booking at a quieter time, like early morning or late afternoon",
-                    "reason": f"Quieter times help maintain tempo and rhythm between shots"
-                })
-        elif handicap is not None and factor_scores["suitability"] < 50:  # Threshold: suitability score below 50
-            recommendations.append({
-                "action": "Consider trying a less demanding course today",
-                "reason": f"Course difficulty combined with today's conditions tends to feel tougher if you're still building consistency"
-            })
+    # Recommendations will be generated in render_assessment_results using two-stage system
+    # Keep empty list here for backward compatibility
+    recommendations = []
     
     # Validate and filter reasons to prevent duplicates and generic filler
     handicap_band = suitability_result.get("band") if handicap is not None else None
@@ -4467,8 +4536,26 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     # Extract structured outputs
     overall_score = playability["overall_score"]
     reasons = playability["reasons"]
-    recommendations = playability["recommendations"]
     factor_scores = playability["factor_scores"]
+    
+    # Generate recommendations using two-stage system
+    # Stage A: Base recommendation from tier only
+    base_recommendation = generate_base_recommendation(playability_tier)
+    
+    # Stage B: Personalize based on confidence, handicap, course difficulty, course pressure, daylight
+    # Map golf_experience to confidence: Beginner -> Beginner, Regular -> Regular, Confident -> Confident
+    confidence = golf_experience  # They use the same values
+    
+    recommendations = personalize_recommendation(
+        base_recommendation=base_recommendation,
+        playability_tier=playability_tier,
+        confidence=confidence,
+        handicap=handicap,
+        course_difficulty=course_difficulty,
+        course_pressure=busyness_label,
+        recommended_holes=recommended_holes,
+        daylight_label=daylight_label
+    )
     
     # Classify playability tier based ONLY on weather and ground conditions
     # Extract weather data for tier classification
