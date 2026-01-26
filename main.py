@@ -1859,35 +1859,136 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     
     # Price doesn't add to reasons unless extreme (informational only)
     
-    # Calculate weighted overall score
-    # Weights: Weather 30%, Ground 25%, Busyness 20%, Suitability 25% (if handicap provided), Price 0%
-    # If no handicap, redistribute suitability weight: Weather 40%, Ground 33%, Busyness 27%
-    if handicap is not None:
-        weights = {
-            "weather": 0.30,
-            "ground": 0.25,
-            "busyness": 0.20,
-            "suitability": 0.25,
-            "price": 0.0  # Display only
-        }
-    else:
-        weights = {
-            "weather": 0.40,
-            "ground": 0.33,
-            "busyness": 0.27,
-            "suitability": 0.0,  # Not used when no handicap
-            "price": 0.0  # Display only
-        }
+    # Course difficulty factor scoring (separate from suitability)
+    # Easy courses boost score, Hard courses reduce it
+    if course_difficulty == "Easy":
+        factor_scores["difficulty"] = 100
+        difficulty_threshold = "Easy (100)"
+    elif course_difficulty == "Medium":
+        factor_scores["difficulty"] = 70
+        difficulty_threshold = "Medium (70)"
+    else:  # Hard
+        factor_scores["difficulty"] = 40
+        difficulty_threshold = "Hard (40)"
     
-    # If daylight is not feasible, overall score is 0 (override)
+    # Add difficulty reason
+    reasons.append({
+        "factor": "difficulty",
+        "condition": course_difficulty,
+        "threshold": difficulty_threshold,
+        "impact": f"{course_difficulty} course difficulty affects shot selection and course management"
+    })
+    
+    # Calculate weighted overall score
+    # REBALANCED WEIGHTS: Weather + Ground >= 70%, Course difficulty <= 20%, Handicap <= 10%
+    # Base weights (weather + ground dominate)
+    weather_weight = 0.40  # 40%
+    ground_weight = 0.35  # 35%
+    difficulty_weight = 0.15  # 15%
+    busyness_weight = 0.10  # 10%
+    
+    # Handicap/suitability weight (only meaningful in Challenging/Rough bands)
+    # For Great/Decent tiers, handicap has minimal impact
+    # For Challenging/Rough tiers, handicap can have up to 10% impact
+    suitability_weight = 0.0  # Will be set conditionally
+    
+    # Calculate base score without handicap first to determine tier
+    base_weights = {
+        "weather": weather_weight,
+        "ground": ground_weight,
+        "difficulty": difficulty_weight,
+        "busyness": busyness_weight,
+        "suitability": 0.0,
+        "price": 0.0  # Display only
+    }
+    
+    # Calculate base score (without handicap) to determine tier
+    if not daylight_feasible:
+        base_score = 0
+    else:
+        base_score = sum(factor_scores[factor] * base_weights[factor] for factor in base_weights if factor != "daylight")
+        base_score = int(base_score)
+    
+    # Determine provisional tier from base score
+    provisional_tier = get_playability_tier(base_score)
+    
+    # Adjust suitability weight based on tier: only meaningful in Challenging/Rough
+    if handicap is not None:
+        if provisional_tier in ["Challenging", "Rough"]:
+            # Handicap matters more in challenging conditions
+            suitability_weight = 0.10  # 10% max
+            # Reduce other weights proportionally to make room
+            total_base_weight = weather_weight + ground_weight + difficulty_weight + busyness_weight
+            scale_factor = (total_base_weight - suitability_weight) / total_base_weight
+            weather_weight *= scale_factor
+            ground_weight *= scale_factor
+            difficulty_weight *= scale_factor
+            busyness_weight *= scale_factor
+        else:
+            # Handicap has minimal impact in Great/Decent conditions
+            suitability_weight = 0.02  # 2% - minimal impact
+            # Reduce other weights slightly
+            total_base_weight = weather_weight + ground_weight + difficulty_weight + busyness_weight
+            scale_factor = (total_base_weight - suitability_weight) / total_base_weight
+            weather_weight *= scale_factor
+            ground_weight *= scale_factor
+            difficulty_weight *= scale_factor
+            busyness_weight *= scale_factor
+    else:
+        suitability_weight = 0.0
+    
+    # Final weights
+    weights = {
+        "weather": weather_weight,
+        "ground": ground_weight,
+        "difficulty": difficulty_weight,
+        "busyness": busyness_weight,
+        "suitability": suitability_weight,
+        "price": 0.0  # Display only
+    }
+    
+    # Calculate final overall score
     if not daylight_feasible:
         overall_score = 0
     else:
         overall_score = sum(factor_scores[factor] * weights[factor] for factor in weights if factor != "daylight")
         overall_score = int(overall_score)
     
-    # Determine playability_tier from overall score
+    # Determine playability_tier from final score
     playability_tier = get_playability_tier(overall_score)
+    
+    # Rule: Easy courses rarely become "Rough" unless weather/ground is severe
+    if course_difficulty == "Easy" and playability_tier == "Rough":
+        # Check if weather/ground is severe enough
+        weather_severe = factor_scores["weather"] <= 30  # Rain, Very cold, or Poor conditions
+        ground_severe = factor_scores["ground"] <= 30  # Too soft
+        if not (weather_severe or ground_severe):
+            # Downgrade to Challenging if conditions aren't severe
+            playability_tier = "Challenging"
+            # Adjust score to match Challenging tier (45-64)
+            if overall_score < 45:
+                overall_score = 50  # Mid-Challenging score
+    
+    # Rule: For handicaps 0-5, never recommend "skip golf" unless tier is Rough AND weather is severe
+    # This is handled in recommendation generation, but we ensure tier isn't artificially low
+    if handicap is not None and handicap <= 5:
+        if playability_tier == "Rough":
+            # Check if weather is severe (high wind OR heavy rain OR freezing)
+            wind_speed_kmh = weather_data.get("wind_speed", 0) if weather_data else 0
+            temp_max = weather_data.get("temperature_max", 15) if weather_data else 15
+            precipitation_mm = weather_data.get("precipitation", 0) if weather_data else 0
+            
+            weather_severe = (
+                wind_speed_kmh >= 30 or  # High wind
+                precipitation_mm >= 10 or  # Heavy rain
+                temp_max < 5  # Freezing
+            )
+            
+            if not weather_severe:
+                # Downgrade to Challenging for low handicaps if weather isn't severe
+                playability_tier = "Challenging"
+                if overall_score < 45:
+                    overall_score = 50
     
     # Get decision classification for structured output and AI interpretation
     decision_classification = get_decision_classification(playability_tier)
@@ -1902,6 +2003,23 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         reasons, weather_label, ground_label, busyness_label, course_difficulty, handicap_band
     )
     
+    # Build score_breakdown for debugging (already in JSON output)
+    score_breakdown = {
+        "weights": {k: round(v, 3) for k, v in weights.items()},
+        "factor_scores": factor_scores.copy(),
+        "weighted_contributions": {
+            factor: round(factor_scores[factor] * weights[factor], 1)
+            for factor in weights if factor != "daylight" and factor != "price"
+        },
+        "base_score": base_score,
+        "provisional_tier": provisional_tier if handicap is not None else None,
+        "final_score": overall_score,
+        "final_tier": playability_tier,
+        "weather_ground_combined_weight": round(weather_weight + ground_weight, 3),
+        "difficulty_weight": round(difficulty_weight, 3),
+        "handicap_weight": round(suitability_weight, 3)
+    }
+    
     return {
         "overall_score": overall_score,
         "playability_tier": playability_tier,
@@ -1910,7 +2028,8 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         "recommendations": recommendations,
         "factor_scores": factor_scores,
         "weather_info": weather_info,
-        "weather_rating": weather_rating  # For backward compatibility
+        "weather_rating": weather_rating,  # For backward compatibility
+        "score_breakdown": score_breakdown  # Debug field
     }
 
 
