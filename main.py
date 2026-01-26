@@ -1372,22 +1372,22 @@ def generate_base_recommendation(playability_tier: str) -> Dict[str, str]:
     """
     if playability_tier == "Great":
         return {
-            "action": "Play 18 holes",
+            "action": "Play 18",
             "reason": "Conditions are ideal for a full round"
         }
     elif playability_tier == "Decent":
         return {
-            "action": "Play 18 holes",
+            "action": "Play 18",
             "reason": "Conditions are good for a full round"
         }
     elif playability_tier == "Challenging":
         return {
-            "action": "Play 9 holes or play with adjustments",
-            "reason": "Conditions add some challenge, so a shorter round or adjusted expectations work better"
+            "action": "Play 9 or range session",
+            "reason": "Conditions add challenge, so a shorter round or practice works better"
         }
     else:  # Rough
         return {
-            "action": "Range, short game, or simulator",
+            "action": "Range and short game (or simulator)",
             "reason": "Conditions are tough, so practice facilities offer better value today"
         }
 
@@ -1406,22 +1406,40 @@ def personalize_recommendation(
     Stage B: Personalize plan using confidence, handicap, course difficulty, course pressure, daylight.
     
     Rules:
-    1) Handicap is optional. If missing, use confidence only.
+    1) Handicap is optional. If missing, infer band using confidence:
+       Beginner -> High band, Regular -> Mid band, Confident -> Low band
     2) Never recommend "wait for better conditions" to Confident OR handicap <= 8 unless tier == Rough.
-    3) Beginner should get Range/Short-game suggestion earlier (tier Challenging).
-    4) Course difficulty only changes advice when tier is Challenging or Rough.
-    5) If daylight suggests 9 holes, that should override "play 18" even on Great/Decent.
+    3) Beginner: in Challenging, steer to range/short game more strongly.
+    4) Course difficulty only affects messaging when tier is Challenging or Rough (never Great/Decent).
+    5) Daylight feasibility can override "Play 18" to "Play 9".
     
     Returns: List of recommendation dicts with "action" and "reason" keys.
-    Tone: Pro giving options and trade-offs, not telling people off.
+    Tone: Pro giving options and trade-offs, not dismissive.
     """
     recommendations = []
     
-    # Rule 5: Daylight override - if daylight suggests 9 holes, override base plan
+    # Infer handicap band from confidence if handicap is missing
+    if handicap is None:
+        if confidence == "Beginner":
+            inferred_handicap_band = "High"
+        elif confidence == "Regular":
+            inferred_handicap_band = "Mid"
+        else:  # Confident
+            inferred_handicap_band = "Low"
+    else:
+        # Determine handicap band from actual handicap
+        if handicap <= 8:
+            inferred_handicap_band = "Low"
+        elif handicap <= 18:
+            inferred_handicap_band = "Mid"
+        else:
+            inferred_handicap_band = "High"
+    
+    # Rule 5: Daylight override - if daylight suggests 9 holes, override "Play 18"
     if recommended_holes == 9 and playability_tier in ["Great", "Decent"]:
         recommendations.append({
-            "action": "Play 9 holes",
-            "reason": "Daylight is tight, so 9 holes ensures you finish comfortably without rushing"
+            "action": "Play 9",
+            "reason": "Daylight is tight, so 9 holes ensures you finish comfortably—you can always add more if time allows"
         })
         # Still include base recommendation as alternative
         recommendations.append({
@@ -1430,7 +1448,7 @@ def personalize_recommendation(
         })
         return recommendations
     
-    # Rule 3: Beginner gets Range/Short-game earlier (tier Challenging)
+    # Rule 3: Beginner in Challenging - steer to range/short game more strongly
     if playability_tier == "Challenging" and confidence == "Beginner":
         recommendations.append({
             "action": "Range session or short game practice",
@@ -1444,50 +1462,38 @@ def personalize_recommendation(
         return recommendations
     
     # Rule 2: Never recommend "wait" to Confident OR handicap <= 8 unless tier == Rough
-    should_avoid_wait = (confidence == "Confident" or (handicap is not None and handicap <= 8))
+    should_avoid_wait = (confidence == "Confident" or (handicap is not None and handicap <= 8) or inferred_handicap_band == "Low")
     
-    # Rule 4: Course difficulty only changes advice when tier is Challenging or Rough
+    # Rule 4: Course difficulty only affects messaging when tier is Challenging or Rough (never Great/Decent)
     if playability_tier in ["Challenging", "Rough"]:
         if course_difficulty == "Hard":
-            if confidence == "Beginner" or (handicap is not None and handicap > 18):
+            if confidence == "Beginner" or inferred_handicap_band == "High":
                 recommendations.append({
                     "action": "Consider an easier course today",
-                    "reason": "A challenging course combined with tough conditions stacks the deck—an easier layout gives you a better chance to build confidence"
+                    "reason": "A challenging course combined with tough conditions stacks the deck—an easier layout gives you a better chance to build confidence and enjoy your round"
                 })
             elif should_avoid_wait:
                 recommendations.append({
                     "action": base_recommendation["action"],
-                    "reason": f"{base_recommendation['reason']}, though a harder course adds extra challenge—manage expectations and focus on shot selection"
+                    "reason": f"{base_recommendation['reason']}, though a harder course adds extra challenge—manage expectations and focus on shot selection rather than score"
                 })
             else:
                 recommendations.append({
                     "action": "Consider waiting for better conditions or trying an easier course",
-                    "reason": "A challenging course combined with tough conditions makes it harder to enjoy your round—either wait for better weather or pick an easier layout"
+                    "reason": "A challenging course combined with tough conditions makes it harder to enjoy your round—either wait for better weather or pick an easier layout that matches the conditions"
                 })
         elif course_difficulty == "Easy":
-            if should_avoid_wait:
-                recommendations.append({
-                    "action": base_recommendation["action"],
-                    "reason": f"{base_recommendation['reason']}, and an easier course helps you manage the conditions better"
-                })
-            else:
-                recommendations.append({
-                    "action": base_recommendation["action"],
-                    "reason": f"{base_recommendation['reason']}, and an easier course helps you manage the conditions better"
-                })
+            recommendations.append({
+                "action": base_recommendation["action"],
+                "reason": f"{base_recommendation['reason']}, and an easier course helps you manage the conditions better—you'll have more margin for error"
+            })
         else:  # Medium difficulty
-            if should_avoid_wait:
-                recommendations.append({
-                    "action": base_recommendation["action"],
-                    "reason": base_recommendation["reason"]
-                })
-            else:
-                recommendations.append({
-                    "action": base_recommendation["action"],
-                    "reason": base_recommendation["reason"]
-                })
+            recommendations.append({
+                "action": base_recommendation["action"],
+                "reason": base_recommendation["reason"]
+            })
     else:  # Great or Decent
-        # Course difficulty doesn't matter for Great/Decent tiers
+        # Course difficulty doesn't affect messaging for Great/Decent tiers
         recommendations.append({
             "action": base_recommendation["action"],
             "reason": base_recommendation["reason"]
@@ -1498,18 +1504,18 @@ def personalize_recommendation(
         if playability_tier in ["Great", "Decent"]:
             recommendations.append({
                 "action": "Book early or late to avoid peak times",
-                "reason": "The course will be busy, so quieter slots help you maintain rhythm and avoid waiting"
+                "reason": "The course will be busy, so quieter slots help you maintain rhythm and avoid waiting—better pace means better golf"
             })
         else:  # Challenging or Rough
             recommendations.append({
                 "action": "Consider quieter times if you do play",
-                "reason": "Busy conditions add extra pressure when conditions are already challenging—quieter times give you more space to manage your game"
+                "reason": "Busy conditions add extra pressure when conditions are already challenging—quieter times give you more space to manage your game without feeling rushed"
             })
     elif course_pressure in ["Quiet", "Moderate"]:
         if playability_tier in ["Challenging", "Rough"]:
             recommendations.append({
                 "action": "Quieter conditions help if you do decide to play",
-                "reason": "Less course pressure gives you more time to manage the challenging conditions without feeling rushed"
+                "reason": "Less course pressure gives you more time to manage the challenging conditions without feeling rushed—you can take your time on each shot"
             })
     
     # Ensure at least one recommendation
@@ -4789,6 +4795,13 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     )
     
     # Generate tier reason strings (condition-based only, no handicap)
+    # Extract needed values from weather_info and weather_data
+    precipitation_label = weather_info.get("precipitation_label", "Dry")
+    precipitation_mm = weather_data.get("precipitation", 0) if weather_data else 0
+    wind_label = weather_info.get("wind_label", "Calm")
+    temp_min = weather_data.get("temperature_min", 15) if weather_data else 15
+    temp_avg = (temp_min + temp_max) / 2
+    
     tier_reasons = tier_reason_strings(
         precipitation_label, precipitation_mm,
         wind_label, wind_speed_kmh,
