@@ -1426,12 +1426,18 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
     # Cap at 4 items
     result["why_bullets"] = result["why_bullets"][:4]
     
-    # Ensure what_you_could_do_bullets exists (list, len 1-3)
+    # Ensure what_you_could_do_bullets exists (list, len 1-3) - use friendly pro-shop tone
     if "what_you_could_do_bullets" not in result or not isinstance(result["what_you_could_do_bullets"], list):
-        result["what_you_could_do_bullets"] = ["Enjoy your round. Conditions are suitable today."]
+        if tier in ["Great", "Decent"]:
+            result["what_you_could_do_bullets"] = ["18 holes looks good today—conditions are in your favour.", "Consider booking early or late to avoid peak times if the course is busy."]
+        else:
+            result["what_you_could_do_bullets"] = ["9 holes might be more manageable in these conditions.", "A focused range session could help you work on technique without the pressure."]
     # Ensure at least 1 item
     if len(result["what_you_could_do_bullets"]) < 1:
-        result["what_you_could_do_bullets"] = ["Enjoy your round. Conditions are suitable today."]
+        if tier in ["Great", "Decent"]:
+            result["what_you_could_do_bullets"] = ["18 holes looks good today—conditions are in your favour.", "Consider booking early or late to avoid peak times if the course is busy."]
+        else:
+            result["what_you_could_do_bullets"] = ["9 holes might be more manageable in these conditions.", "A focused range session could help you work on technique without the pressure."]
     # Cap at 3 items
     result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:3]
     
@@ -5462,8 +5468,19 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             if not action:
                 continue
             
-            # Format bullet: "[Action]." (separate sentence, actions only)
+            # Transform generic actions to friendly pro-shop tone bullets
+            # Format bullet: friendly, actionable, not robotic commands
             action_clean = action.strip()
+            
+            # Transform generic "Play 18" / "Play 9" to friendly alternatives
+            if action_clean.lower() == "play 18":
+                action_clean = "18 holes looks good today—conditions are in your favour"
+            elif action_clean.lower() == "play 9":
+                action_clean = "9 holes might be more manageable in these conditions"
+            elif "play 18" in action_clean.lower():
+                action_clean = action_clean.replace("Play 18", "18 holes").replace("play 18", "18 holes")
+            
+            # Add period if not present
             if not action_clean.endswith('.'):
                 action_clean += "."
             
@@ -5472,18 +5489,21 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             if action_normalized not in seen_actions:
                 seen_actions.add(action_normalized)
                 what_you_could_do_bullets.append(action_clean)
+                logger.debug(f"COPY_BUILDER: Added bullet from recommendation action='{action}' -> bullet='{action_clean}'")
             
             # Cap bullets based on golf_experience
             max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
             if len(what_you_could_do_bullets) >= max_what_bullets:
                 break
     
-    # Ensure at least 1 item
+    # Ensure at least 1 item - use friendly pro-shop tone (not generic "Enjoy your round")
     if len(what_you_could_do_bullets) < 1:
         if playability_tier in ["Great", "Decent"]:
-            what_you_could_do_bullets.append("Enjoy your round. Conditions are suitable today.")
+            what_you_could_do_bullets.append("18 holes looks good today—conditions are in your favour.")
+            what_you_could_do_bullets.append("Consider booking early or late to avoid peak times if the course is busy.")
         else:
-            what_you_could_do_bullets.append("Consider waiting for better conditions. Today's conditions add challenge.")
+            what_you_could_do_bullets.append("9 holes might be more manageable in these conditions.")
+            what_you_could_do_bullets.append("A focused range session could help you work on technique without the pressure.")
     
     # Cap at 3 items
     what_you_could_do_bullets = what_you_could_do_bullets[:3]
@@ -5533,6 +5553,14 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     # ============================================================================
     final_payload = deterministic_payload.copy()  # Start with deterministic
     llm_rewrite_succeeded = False
+    
+    # Initialize copy_debug tracking
+    copy_debug = {
+        "copy_source": "unknown",
+        "copy_builder_fn": "unknown",
+        "copy_fields_present": [],
+        "copy_payload_preview": {}
+    }
     llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
     
     if openai_client:
@@ -5554,13 +5582,19 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                 # Ensure tier_reasons is preserved (not rewritten by LLM)
                 final_payload["tier_reasons"] = deterministic_payload["tier_reasons"]
                 llm_rewrite_succeeded = True
+                copy_debug["copy_source"] = "llm"
+                copy_debug["copy_builder_fn"] = "llm_rewrite_assessment_copy"
                 logger.info(f"LLM_OK: request_id={request_id}")
             else:
                 # Discard LLM output, use deterministic
+                copy_debug["copy_source"] = "templates"
+                copy_debug["copy_builder_fn"] = "generate_recommendations"
                 logger.warning(f"LLM_DISCARDED: request_id={request_id} reason={validation_reason}")
                 
         except Exception as e:
             # Fallback gracefully to deterministic on any error (don't leak secrets)
+            copy_debug["copy_source"] = "templates"
+            copy_debug["copy_builder_fn"] = "generate_recommendations"
             logger.error(f"LLM_FAIL: request_id={request_id} reason={str(e)}")
             # final_payload remains as deterministic_payload
     
@@ -5595,6 +5629,22 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # Map what_you_could_do_bullets to what_to_do_bullets for backward compatibility
     what_to_do_bullets = what_you_could_do_bullets
+    
+    # Populate copy_debug fields
+    copy_debug["copy_fields_present"] = list(final_payload.keys())
+    copy_debug["copy_payload_preview"] = {
+        "what_you_could_do_bullets": str(final_payload.get("what_you_could_do_bullets", []))[:80],
+        "why_bullets": str(final_payload.get("why_bullets", []))[:80],
+        "best_move": str(final_payload.get("best_move", ""))[:80],
+        "recommendations": str(final_payload.get("recommendations", []))[:80]
+    }
+    
+    # Track which function built the bullets
+    if not llm_rewrite_succeeded:
+        if recommendations and len(what_you_could_do_bullets) > 0:
+            copy_debug["copy_builder_fn"] = "generate_recommendations -> format_as_bullets"
+        else:
+            copy_debug["copy_builder_fn"] = "ensure_assessment_defaults (fallback)"
     
     # Generate added_action from recommendations (for LLM summary)
     if recommendations:
@@ -5685,15 +5735,25 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # What to do instead - cap bullets based on golf_experience
     # Beginner: up to 6 total, Regular: 2-4, Confident: max 3
-    # Ensure what_to_do_bullets has at least 1 item (use defaults if needed)
+    # Ensure what_to_do_bullets has at least 1 item (use friendly fallback if needed)
     if len(what_to_do_bullets) < 1:
-        what_to_do_bullets = what_you_could_do
+        # Friendly pro-shop tone fallback (not generic "Play 18" or "Enjoy your round")
+        if playability_tier in ["Great", "Decent"]:
+            what_to_do_bullets = ["18 holes looks good today—conditions are in your favour.", "Consider booking early or late to avoid peak times if the course is busy."]
+        else:
+            what_to_do_bullets = ["9 holes might be more manageable in these conditions.", "A focused range session could help you work on technique without the pressure."]
+        copy_debug["copy_builder_fn"] = "friendly_fallback_templates"
     
     max_what_bullets_final = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
     what_to_do_bullets_final = what_to_do_bullets[:max_what_bullets_final] if len(what_to_do_bullets) >= 2 else what_to_do_bullets
     
+    # FINAL ASSIGNMENT: Only ONE place where what_bullets_html is set
     # Render as HTML
     what_bullets_html = '<ul class="what-bullets">' + ''.join([f'<li>{bullet}</li>' for bullet in what_to_do_bullets_final]) + '</ul>'
+    
+    # FINAL_COPY logging - log exactly what will be rendered
+    logger.info(f"FINAL_COPY: request_id={request_id} source={copy_debug['copy_source']} tier={playability_tier} llm_effective={llm_effective_enabled} "
+                f"what_you_could_do={what_to_do_bullets_final} if_not_try_this_instead={instead_activities[:2] if instead_activities else []}")
     
     # What section title
     what_section_title = "What to expect" if playability_tier in ["Great", "Decent"] else "What to do instead"
@@ -5730,6 +5790,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "what_bullets_html": what_bullets_html,
         "what_section_title": what_section_title,
         "tier_banner_class": playability_tier.lower(),
+        "copy_debug": copy_debug,
+        "llm_effective_enabled": llm_effective_enabled,
         "weather_label_display": weather_label_display,
         "ground_label_display": ground_label_display,
         "busyness_rating": busyness_rating,
@@ -5933,6 +5995,12 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         factor_scores = playability.get("factor_scores", {})
         debug_info_html = f"""
         <div class="debug-info" style="margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 8px; font-size: 12px; font-family: monospace;">
+            <strong>Copy Debug:</strong><br>
+            copy_source: {copy_debug.get('copy_source', 'unknown')}<br>
+            copy_builder_fn: {copy_debug.get('copy_builder_fn', 'unknown')}<br>
+            tier: {playability_tier}<br>
+            llm_effective: {llm_effective_enabled}<br>
+            <br>
             <strong>Scoring Model Outputs:</strong><br>
             Overall Score: {overall_score}/100<br>
             Playability Tier: {playability_tier}<br>
