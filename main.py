@@ -25,6 +25,341 @@ COURSES_PATH_FALLBACK = BASE_DIR / "data" / "courses.json"
 
 app = FastAPI()
 
+# Course attributes data structure for future logic and dynamic copy
+# Maps course name to attributes: area, typical_drainage, exposure, public_or_private, notes
+COURSE_ATTRIBUTES = {
+    "Royal Blackheath Golf Club": {
+        "name": "Royal Blackheath Golf Club",
+        "area": "SE",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Shooters Hill Golf Club": {
+        "name": "Shooters Hill Golf Club",
+        "area": "SE",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Eltham Warren Golf Club": {
+        "name": "Eltham Warren Golf Club",
+        "area": "SE",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Sundridge Park Golf Club": {
+        "name": "Sundridge Park Golf Club",
+        "area": "SE",
+        "typical_drainage": "good",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Dulwich and Sydenham Hill Golf Club": {
+        "name": "Dulwich and Sydenham Hill Golf Club",
+        "area": "SE",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Addington Court Golf Club": {
+        "name": "Addington Court Golf Club",
+        "area": "SE",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Purley Downs Golf Club": {
+        "name": "Purley Downs Golf Club",
+        "area": "SE",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Croham Hurst Golf Club": {
+        "name": "Croham Hurst Golf Club",
+        "area": "SE",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "West Kent Golf Club": {
+        "name": "West Kent Golf Club",
+        "area": "SE",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Chislehurst Golf Club": {
+        "name": "Chislehurst Golf Club",
+        "area": "SE",
+        "typical_drainage": "good",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Richmond Park Golf Course": {
+        "name": "Richmond Park Golf Course",
+        "area": "SW",
+        "typical_drainage": "poor",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Royal Mid-Surrey Golf Club": {
+        "name": "Royal Mid-Surrey Golf Club",
+        "area": "SW",
+        "typical_drainage": "good",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Dukes Meadows Golf Course": {
+        "name": "Dukes Meadows Golf Course",
+        "area": "SW",
+        "typical_drainage": "poor",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Fulwell Golf Course": {
+        "name": "Fulwell Golf Course",
+        "area": "SW",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Hampton Court Palace Golf Club": {
+        "name": "Hampton Court Palace Golf Club",
+        "area": "SW",
+        "typical_drainage": "good",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Strawberry Hill Golf Club": {
+        "name": "Strawberry Hill Golf Club",
+        "area": "SW",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Coombe Hill Golf Course": {
+        "name": "Coombe Hill Golf Course",
+        "area": "SW",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Coombe Wood Golf Course": {
+        "name": "Coombe Wood Golf Course",
+        "area": "SW",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Malden Golf Club": {
+        "name": "Malden Golf Club",
+        "area": "SW",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Mitcham Golf Club": {
+        "name": "Mitcham Golf Club",
+        "area": "SW",
+        "typical_drainage": "poor",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Pinner Hill Golf Club": {
+        "name": "Pinner Hill Golf Club",
+        "area": "NW",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Stanmore Golf Club": {
+        "name": "Stanmore Golf Club",
+        "area": "NW",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Harrow School Golf Course": {
+        "name": "Harrow School Golf Course",
+        "area": "NW",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Grims Dyke Golf Club": {
+        "name": "Grims Dyke Golf Club",
+        "area": "NW",
+        "typical_drainage": "good",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Northwood Golf Club": {
+        "name": "Northwood Golf Club",
+        "area": "NW",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Hendon Golf Club": {
+        "name": "Hendon Golf Club",
+        "area": "NW",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Mill Hill Golf Club": {
+        "name": "Mill Hill Golf Club",
+        "area": "NW",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Muswell Hill Golf Club": {
+        "name": "Muswell Hill Golf Club",
+        "area": "NW",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Sudbury Golf Club": {
+        "name": "Sudbury Golf Club",
+        "area": "NW",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "West Middlesex Golf Course": {
+        "name": "West Middlesex Golf Course",
+        "area": "NW",
+        "typical_drainage": "poor",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Trent Park Golf Club": {
+        "name": "Trent Park Golf Club",
+        "area": "NE",
+        "typical_drainage": "poor",
+        "exposure": "sheltered",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Bush Hill Park Golf Club": {
+        "name": "Bush Hill Park Golf Club",
+        "area": "NE",
+        "typical_drainage": "poor",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Lee Valley Golf Course": {
+        "name": "Lee Valley Golf Course",
+        "area": "NE",
+        "typical_drainage": "poor",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Enfield Golf Club": {
+        "name": "Enfield Golf Club",
+        "area": "NE",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Ilford Golf Club": {
+        "name": "Ilford Golf Club",
+        "area": "NE",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Wanstead Golf Club": {
+        "name": "Wanstead Golf Club",
+        "area": "NE",
+        "typical_drainage": "good",
+        "exposure": "sheltered",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Woodford Golf Course": {
+        "name": "Woodford Golf Course",
+        "area": "NE",
+        "typical_drainage": "average",
+        "exposure": "sheltered",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "The Warren Park Golf Centre": {
+        "name": "The Warren Park Golf Centre",
+        "area": "NE",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "public",
+        "notes": ""
+    },
+    "Romford Golf Club": {
+        "name": "Romford Golf Club",
+        "area": "NE",
+        "typical_drainage": "average",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    },
+    "Upminster Golf Club": {
+        "name": "Upminster Golf Club",
+        "area": "NE",
+        "typical_drainage": "good",
+        "exposure": "exposed",
+        "public_or_private": "private",
+        "notes": ""
+    }
+}
+
+
+def get_course_attributes(course_name: str) -> Dict[str, Any]:
+    """
+    Get course attributes for a given course name.
+    Returns dict with name, area, typical_drainage, exposure, public_or_private, notes.
+    Returns None if course not found.
+    """
+    return COURSE_ATTRIBUTES.get(course_name)
+
+
 # Get git commit hash at startup
 def get_git_commit() -> str:
     """
@@ -3793,12 +4128,37 @@ async def read_root():
                 max-width: 600px;
                 padding: 20px;
             }}
-            .qa-section h2 {{
+            .qa-section details {{
+                color: var(--alba-cream);
+            }}
+            .qa-section summary {{
                 font-weight: 700;
                 color: var(--alba-cream);
                 font-size: 14px;
                 letter-spacing: -0.1px;
-                margin-bottom: 16px;
+                cursor: pointer;
+                padding: 4px 0;
+                list-style: none;
+                user-select: none;
+            }}
+            .qa-section summary::-webkit-details-marker {{
+                display: none;
+            }}
+            .qa-section summary::before {{
+                content: "▶";
+                display: inline-block;
+                margin-right: 8px;
+                font-size: 10px;
+                transition: transform 0.2s ease;
+                color: rgba(255, 247, 224, 0.6);
+            }}
+            .qa-section details[open] summary::before {{
+                transform: rotate(90deg);
+            }}
+            .qa-section .qa-content {{
+                margin-top: 14px;
+                padding-top: 14px;
+                border-top: 1px solid rgba(255, 255, 255, 0.05);
             }}
             .qa-item {{
                 margin-bottom: 16px;
@@ -3807,16 +4167,16 @@ async def read_root():
                 margin-bottom: 0;
             }}
             .qa-question {{
-                font-weight: 600;
+                font-weight: 400;
                 color: var(--alba-cream);
                 font-size: 14px;
                 margin-bottom: 6px;
                 line-height: 1.5;
             }}
             .qa-answer {{
-                color: rgba(255, 247, 224, 0.8);
+                color: rgba(255, 247, 224, 0.6);
                 font-size: 14px;
-                font-weight: 400;
+                font-weight: 300;
                 line-height: 1.6;
                 padding-left: 0;
             }}
@@ -4105,23 +4465,27 @@ async def read_root():
             </details>
         </div>
         <div class="qa-section">
-            <h2>Common questions about playing golf in London</h2>
-            <div class="qa-item">
-                <div class="qa-question">Q: Is it worth playing golf in winter in London?</div>
-                <div class="qa-answer">A: Yes, but course drainage, daylight, and wind matter more than temperature.</div>
-            </div>
-            <div class="qa-item">
-                <div class="qa-question">Q: Is soft ground bad for high handicappers?</div>
-                <div class="qa-answer">A: Soft ground reduces roll and increases fatigue, especially on longer courses.</div>
-            </div>
-            <div class="qa-item">
-                <div class="qa-question">Q: When is the best time of day to play in winter?</div>
-                <div class="qa-answer">A: Late morning to early afternoon offers better light and warmer conditions.</div>
-            </div>
-            <div class="qa-item">
-                <div class="qa-question">Q: Is 9 holes better than 18 in poor conditions?</div>
-                <div class="qa-answer">A: Often yes. Shorter rounds reduce fatigue and pace issues in heavy conditions.</div>
-            </div>
+            <details>
+                <summary>Common questions about playing golf in London</summary>
+                <div class="qa-content">
+                    <div class="qa-item">
+                        <div class="qa-question">Q: Is it worth playing golf in winter in London?</div>
+                        <div class="qa-answer">A: Yes, but course drainage, daylight, and wind matter more than temperature.</div>
+                    </div>
+                    <div class="qa-item">
+                        <div class="qa-question">Q: Is soft ground bad for high handicappers?</div>
+                        <div class="qa-answer">A: Soft ground reduces roll and increases fatigue, especially on longer courses.</div>
+                    </div>
+                    <div class="qa-item">
+                        <div class="qa-question">Q: When is the best time of day to play in winter?</div>
+                        <div class="qa-answer">A: Late morning to early afternoon offers better light and warmer conditions.</div>
+                    </div>
+                    <div class="qa-item">
+                        <div class="qa-question">Q: Is 9 holes better than 18 in poor conditions?</div>
+                        <div class="qa-answer">A: Often yes. Shorter rounds reduce fatigue and pace issues in heavy conditions.</div>
+                    </div>
+                </div>
+            </details>
         </div>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
         {IFRAME_RESIZE_SCRIPT}
