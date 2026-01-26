@@ -4245,8 +4245,18 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             # Add debug field for payload keys (always add for debugging)
             errors["llm_payload_keys"] = list(deterministic_payload_with_context.keys())
             
-            # Call LLM to rewrite copy
-            llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
+            # Call LLM to rewrite copy - wrap in try/except to catch any exceptions
+            try:
+                llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
+            except Exception as llm_exception:
+                # Catch any exception from LLM call (timeout, API error, parse error, etc.)
+                # Log and fall back to templates
+                errors["llm_error_type"] = type(llm_exception).__name__
+                errors["llm_error_message"] = str(llm_exception)
+                errors["llm_raw_preview"] = ""
+                errors["llm_parse_stage"] = "exception_during_call"
+                logger.error(f"LLM call failed, falling back to templates: {str(llm_exception)}", exc_info=True)
+                return "templates", "generate_recommendations", deterministic_payload, errors
             
             # Validate required keys (post-processor should have ensured all keys exist)
             required_keys = [
@@ -4373,6 +4383,10 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     """
     import json
     
+    def safe_json(obj):
+        """Safely serialize object to JSON, using str() as fallback for non-serializable types."""
+        return json.dumps(obj, ensure_ascii=False, default=str)
+    
     # Read OPENAI_API_KEY from environment
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -4403,6 +4417,48 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
     course_name = deterministic_payload.get("course_name", "")
     course_difficulty = None  # Will be extracted if available
     
+    # Extract raw labels if available (for context, not for rewriting)
+    weather_label = deterministic_payload.get("weather_label", "")
+    ground_label = deterministic_payload.get("ground_label", "")
+    busyness_label = deterministic_payload.get("busyness_label", "")
+    daylight_label = deterministic_payload.get("daylight_label", "")
+    suitability_label = deterministic_payload.get("suitability_label", "")
+    
+    # Extract banner_summary_line if available
+    banner_summary_line = deterministic_payload.get("banner_summary_line", "")
+    
+    # Build safe LLM payload with only JSON-serializable fields (no nested objects)
+    # This prevents crashes from non-serializable objects like reasons/recommendations dicts
+    llm_payload = {
+        "playability_tier": playability_tier,
+        "course_name": course_name or "",
+        "handicap": handicap,
+        "best_move": best_move,
+        "banner_summary_line": banner_summary_line,
+        "why_bullets": why_bullets if isinstance(why_bullets, list) else [],
+        "what_you_could_do_bullets": what_you_could_do_bullets if isinstance(what_you_could_do_bullets, list) else [],
+        "instead_activities": instead_activities if isinstance(instead_activities, list) else [],
+        "if_you_play_tips": if_you_play_tips if isinstance(if_you_play_tips, list) else [],
+        "tier_reasons": tier_reasons if isinstance(tier_reasons, list) else [],
+        "weather_label": weather_label or "",
+        "ground_label": ground_label or "",
+        "busyness_label": busyness_label or "",
+        "daylight_label": daylight_label or "",
+        "suitability_label": suitability_label or ""
+    }
+    
+    # Ensure all list items are strings (safety check)
+    def ensure_string_list(lst):
+        if not isinstance(lst, list):
+            return []
+        return [str(item) if item is not None else "" for item in lst]
+    
+    llm_payload["why_bullets"] = ensure_string_list(llm_payload["why_bullets"])
+    llm_payload["what_you_could_do_bullets"] = ensure_string_list(llm_payload["what_you_could_do_bullets"])
+    llm_payload["instead_activities"] = ensure_string_list(llm_payload["instead_activities"])
+    llm_payload["if_you_play_tips"] = ensure_string_list(llm_payload["if_you_play_tips"])
+    llm_payload["tier_reasons"] = ensure_string_list(llm_payload["tier_reasons"])
+    
     # Determine max bullets for what_you_could_do based on tier
     max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
     
@@ -4432,7 +4488,34 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
         ]
     }
     
-    prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
+    request_id_str = f" request_id={request_id}" if request_id else ""
+    
+    # Timing and model config
+    llm_timeout_seconds = 20.0
+    llm_model = "gpt-4o-mini"
+    max_output_tokens = 350
+    
+    # Create client with explicit timeout
+    from openai import OpenAI
+    client_with_timeout = OpenAI(
+        api_key=api_key,
+        timeout=llm_timeout_seconds  # Connect + read timeout
+    )
+    
+    import time
+    start_time = time.time()
+    
+    # Debug log: show payload dict if debug_mode is enabled (passed via deterministic_payload)
+    debug_mode = deterministic_payload.get("_debug_mode", False)
+    if debug_mode:
+        try:
+            logger.info(f"LLM_PAYLOAD request_id={request_id} payload={safe_json(llm_payload)}")
+        except Exception as e:
+            logger.warning(f"Failed to log LLM payload: {e}")
+    
+    # Build prompt safely - wrap in try-except to prevent crashes
+    try:
+        prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
 
 CRITICAL: You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary, no explanations. Just pure JSON.
 
@@ -4456,12 +4539,12 @@ HANDICAP WEIGHTING RULES:
 - Keep handicap references light unless conditions meaningfully amplify difficulty
 
 INPUT DATA (deterministic output):
-{json.dumps(deterministic_payload, indent=2)}
+{safe_json(llm_payload)}
 
 REQUIRED OUTPUT FORMAT - EXACT JSON SCHEMA:
 You MUST return ONLY valid JSON matching this exact structure. Copy this format exactly:
 
-{json.dumps(example_json, indent=2)}
+{safe_json(example_json)}
 
 REQUIRED KEYS (all must be present):
 - headline: string - 1 sentence summary in friendly tone explaining WHY the tier is what it is (useful and specific, not flat)
@@ -4504,30 +4587,13 @@ HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
 - Em dashes (—), en dashes (–), or hyphens used as punctuation (-)
 
 Return ONLY valid JSON matching the exact schema above. No markdown, no code blocks, no explanations."""
-
-    request_id_str = f" request_id={request_id}" if request_id else ""
-    logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
-    
-    # Timing and model config
-    llm_timeout_seconds = 20.0
-    llm_model = "gpt-4o-mini"
-    max_output_tokens = 350
-    
-    # Create client with explicit timeout
-    from openai import OpenAI
-    client_with_timeout = OpenAI(
-        api_key=api_key,
-        timeout=llm_timeout_seconds  # Connect + read timeout
-    )
-    
-    import time
-    start_time = time.time()
-    
-    # Debug log: show payload dict if debug_mode is enabled (passed via deterministic_payload)
-    debug_mode = deterministic_payload.get("_debug_mode", False)
-    if debug_mode:
-        import json
-        logger.info(f"LLM_PAYLOAD request_id={request_id} payload={json.dumps(deterministic_payload, indent=2)}")
+        logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
+    except Exception as e:
+        # If prompt building fails (e.g., JSON serialization error), log and re-raise
+        # This will be caught by build_final_copy and fall back to templates
+        logger.error(f"Failed to build LLM prompt: {str(e)}", exc_info=True)
+        # Raise ValueError - will be caught by build_final_copy and fall back to templates
+        raise ValueError(f"Failed to build LLM prompt: {str(e)}")
     
     try:
         # First attempt
@@ -4584,6 +4650,7 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
         if parsed_data is None:
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.error(f"LLM parse failed: all salvage attempts failed duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            # Raise ValueError - will be caught by build_final_copy and fall back to templates
             raise ValueError("LLM returned invalid JSON structure - all parse attempts failed")
         
         # Determine parse stage (check if it was direct JSON or salvage)
@@ -4635,6 +4702,7 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
         if missing_keys:
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.error(f"LLM missing required keys after post-processing: {missing_keys} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            # Raise ValueError - will be caught by build_final_copy and fall back to templates
             raise ValueError(f"LLM response missing required keys after post-processing: {', '.join(missing_keys)}")
         
         # Check for blocklisted phrases (after cleaning, so should be rare)
@@ -4675,10 +4743,12 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
     except asyncio.TimeoutError:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.error(f"LLM request timed out{request_id_str} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+        # Don't raise - let build_final_copy handle the exception and fall back to templates
         raise ValueError(f"LLM request timed out after {elapsed_ms}ms (timeout={llm_timeout_seconds}s)")
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.error(f"LLM API error{request_id_str}: {str(e)} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
+        # Re-raise so build_final_copy can catch and fall back to templates
         raise
 
 
@@ -6486,10 +6556,24 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "debug_mode": debug_mode
     }
     
-    # Single function call to build final copy
-    copy_source, copy_builder_fn, final_payload, copy_errors = await build_final_copy(
-        copy_context, deterministic_payload, request_id
-    )
+    # Single function call to build final copy - wrap in try/except to ensure we never throw
+    # This ensures the page always renders with templates if LLM fails
+    try:
+        copy_source, copy_builder_fn, final_payload, copy_errors = await build_final_copy(
+            copy_context, deterministic_payload, request_id
+        )
+    except Exception as e:
+        # Fail open: if copy generation fails for any reason, use templates
+        logger.error(f"Copy generation failed, falling back to templates: {str(e)}", exc_info=True)
+        copy_source = "templates"
+        copy_builder_fn = "generate_recommendations"
+        copy_errors = {
+            "llm_error_type": type(e).__name__,
+            "llm_error_message": str(e),
+            "copy_generation_failed": True
+        }
+        # Use deterministic_payload as-is (it already has all required keys)
+        final_payload = deterministic_payload
     
     llm_rewrite_succeeded = (copy_source == "llm")
     
