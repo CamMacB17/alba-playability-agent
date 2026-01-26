@@ -577,10 +577,26 @@ def load_courses():
                         if lat_float is None or lon_float is None:
                             continue
                         
-                        # Normalize course: ensure area field exists (default to empty string)
+                        # Normalize course: ensure optional fields exist with safe defaults
                         normalized_course = dict(course)
                         if "area" not in normalized_course:
                             normalized_course["area"] = ""
+                        
+                        # Add enrichment fields with safe defaults (backwards compatible)
+                        if "drainage" not in normalized_course:
+                            normalized_course["drainage"] = "Average"
+                        elif normalized_course["drainage"] not in ["Poor", "Average", "Good"]:
+                            normalized_course["drainage"] = "Average"  # Invalid value, use default
+                        
+                        if "exposure" not in normalized_course:
+                            normalized_course["exposure"] = "Mixed"
+                        elif normalized_course["exposure"] not in ["Sheltered", "Mixed", "Exposed"]:
+                            normalized_course["exposure"] = "Mixed"  # Invalid value, use default
+                        
+                        if "winter_playability" not in normalized_course:
+                            normalized_course["winter_playability"] = "Average"
+                        elif normalized_course["winter_playability"] not in ["Poor", "Average", "Good"]:
+                            normalized_course["winter_playability"] = "Average"  # Invalid value, use default
                         
                         valid_courses.append(normalized_course)
                     
@@ -684,10 +700,26 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                         if lat_float is None or lon_float is None:
                             continue
                         
-                        # Normalize course: ensure area field exists (default to empty string)
+                        # Normalize course: ensure optional fields exist with safe defaults
                         normalized_course = dict(course)
                         if "area" not in normalized_course:
                             normalized_course["area"] = ""
+                        
+                        # Add enrichment fields with safe defaults (backwards compatible)
+                        if "drainage" not in normalized_course:
+                            normalized_course["drainage"] = "Average"
+                        elif normalized_course["drainage"] not in ["Poor", "Average", "Good"]:
+                            normalized_course["drainage"] = "Average"  # Invalid value, use default
+                        
+                        if "exposure" not in normalized_course:
+                            normalized_course["exposure"] = "Mixed"
+                        elif normalized_course["exposure"] not in ["Sheltered", "Mixed", "Exposed"]:
+                            normalized_course["exposure"] = "Mixed"  # Invalid value, use default
+                        
+                        if "winter_playability" not in normalized_course:
+                            normalized_course["winter_playability"] = "Average"
+                        elif normalized_course["winter_playability"] not in ["Poor", "Average", "Good"]:
+                            normalized_course["winter_playability"] = "Average"  # Invalid value, use default
                         
                         valid_courses.append(normalized_course)
                     
@@ -912,9 +944,15 @@ def calculate_weather_rating(weather_data):
     return weather_info["weather_rating"]
 
 
-def calculate_ground_condition(historical_rainfall):
+def calculate_ground_condition(historical_rainfall, drainage="Average"):
     """
     Calculate ground condition with score and explanation.
+    drainage affects ground penalty after rainfall: Good reduces penalty, Poor increases it.
+    
+    Args:
+        historical_rainfall: 7-day rainfall total in mm
+        drainage: "Poor" | "Average" | "Good" (default "Average")
+    
     Returns dict with:
     - ground_label: Firm / Normal / Soft / Too soft
     - ground_score: 0-100
@@ -928,24 +966,36 @@ def calculate_ground_condition(historical_rainfall):
             "explanation": "Normal ground conditions provide standard ball roll and predictable lies"
         }
     
-    # Thresholds based on 7-day rainfall (mm)
+    # Adjust thresholds based on drainage
+    # Good drainage: thresholds increase (less penalty for same rainfall)
+    # Poor drainage: thresholds decrease (more penalty for same rainfall)
+    drainage_adjustment = {
+        "Good": 10,   # +10mm threshold adjustment (better drainage)
+        "Average": 0,  # No adjustment
+        "Poor": -10   # -10mm threshold adjustment (worse drainage)
+    }
+    adjustment = drainage_adjustment.get(drainage, 0)
+    
+    # Thresholds based on 7-day rainfall (mm) with drainage adjustment
     # Firm: < 5mm (fast, clean lies)
     # Normal: 5-15mm (standard conditions)
     # Soft: 15-35mm (playable but heavy)
     # Too soft: >= 35mm (likely to affect play)
-    if historical_rainfall < 5:
+    adjusted_rainfall = historical_rainfall - adjustment  # Good drainage reduces effective rainfall, Poor increases it
+    
+    if adjusted_rainfall < 5:
         return {
             "ground_label": "Firm",
             "ground_score": 100,
             "explanation": "Firm ground provides fast roll and clean lies, making approach shots predictable with good carry distance"
         }
-    elif historical_rainfall < 15:
+    elif adjusted_rainfall < 15:
         return {
             "ground_label": "Normal",
             "ground_score": 80,
             "explanation": "Normal ground conditions provide standard ball roll and predictable lies without significant impact on carry or footing"
         }
-    elif historical_rainfall < 35:
+    elif adjusted_rainfall < 35:
         return {
             "ground_label": "Soft",
             "ground_score": 50,
@@ -1674,7 +1724,7 @@ def personalize_recommendation(
     return recommendations
 
 
-def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier):
+def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier, course_data=None):
     """
     Compute playability using deterministic scoring model with explicit thresholds.
     Returns dict with:
@@ -1723,30 +1773,48 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     
     # Weather factor scoring with explicit thresholds (0-100)
     # Map weather_label to score: Dry=100, Showers=50, Rain=25, Windy=40, Breezy=70, Very cold=30, Cold=60, Poor conditions=15
-    if weather_label == "Dry":
-        factor_scores["weather"] = 100
-        threshold_hit = "Dry (100)"
-    elif weather_label == "Showers":
-        factor_scores["weather"] = 50
-        threshold_hit = "Showers (50)"
-    elif weather_label == "Rain":
-        factor_scores["weather"] = 25
-        threshold_hit = "Rain (25)"
-    elif weather_label == "Windy":
-        factor_scores["weather"] = 40
-        threshold_hit = "Windy (40)"
-    elif weather_label == "Breezy":
-        factor_scores["weather"] = 70
-        threshold_hit = "Breezy (70)"
-    elif weather_label == "Very cold":
-        factor_scores["weather"] = 30
-        threshold_hit = "Very cold (30)"
-    elif weather_label == "Cold":
-        factor_scores["weather"] = 60
-        threshold_hit = "Cold (60)"
-    else:  # Poor conditions (fallback)
-        factor_scores["weather"] = 15
-        threshold_hit = "Poor conditions (15)"
+    # Exposure affects wind penalty: Sheltered reduces penalty, Exposed increases it
+    # Winter_playability affects cold + wet combined penalty
+    exposure = course_data.get("exposure", "Mixed") if course_data else "Mixed"
+    winter_playability = course_data.get("winter_playability", "Average") if course_data else "Average"
+    
+    # Base weather scores
+    base_weather_scores = {
+        "Dry": 100,
+        "Showers": 50,
+        "Rain": 25,
+        "Windy": 40,
+        "Breezy": 70,
+        "Very cold": 30,
+        "Cold": 60,
+        "Poor conditions": 15
+    }
+    
+    base_score = base_weather_scores.get(weather_label, 15)
+    
+    # Apply exposure adjustment for wind conditions
+    if weather_label in ["Windy", "Breezy"]:
+        exposure_adjustment = {
+            "Sheltered": +10,  # Sheltered reduces wind impact
+            "Mixed": 0,
+            "Exposed": -10     # Exposed increases wind impact
+        }
+        base_score += exposure_adjustment.get(exposure, 0)
+        base_score = max(0, min(100, base_score))  # Clamp to 0-100
+    
+    # Apply winter_playability adjustment for cold + wet combined conditions
+    if weather_label in ["Very cold", "Cold"] and weather_data and weather_data.get("precipitation", 0) > 0:
+        # Cold + wet conditions
+        winter_adjustment = {
+            "Good": +5,      # Good winter playability reduces penalty
+            "Average": 0,
+            "Poor": -5       # Poor winter playability increases penalty
+        }
+        base_score += winter_adjustment.get(winter_playability, 0)
+        base_score = max(0, min(100, base_score))  # Clamp to 0-100
+    
+    factor_scores["weather"] = base_score
+    threshold_hit = f"{weather_label} ({base_score})"
     
     # Use explanation from weather_info
     impact = weather_info["explanation"]
@@ -5131,7 +5199,9 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     weather_rating = weather_info["weather_rating"]  # For backward compatibility
     weather_label = weather_info["weather_label"]  # New condition-based label
     
-    ground_info = calculate_ground_condition(historical_rainfall)
+    # Get drainage from course_data (defaults to "Average" if not present)
+    drainage = course_data.get("drainage", "Average") if course_data else "Average"
+    ground_info = calculate_ground_condition(historical_rainfall, drainage)
     ground_label = ground_info["ground_label"] if isinstance(ground_info, dict) else ground_info
     
     tomorrow_forecast = None
@@ -5164,7 +5234,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     # Compute playability using deterministic scoring model
     playability = compute_playability(
         weather_data, ground_info, busyness_info, course_difficulty,
-        daylight_label, handicap, recommended_holes, price_tier_raw
+        daylight_label, handicap, recommended_holes, price_tier_raw, course_data
     )
     
     # Extract weather info from playability results
