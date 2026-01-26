@@ -4462,6 +4462,9 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
         """Safely serialize object to JSON, using str() as fallback for non-serializable types."""
         return json.dumps(obj, ensure_ascii=False, default=str)
     
+    # Initialize response_text to empty string to prevent UnboundLocalError
+    response_text = ""
+    
     # Wrap entire function in try/except to ensure we never raise - always return None on error
     try:
         # Read OPENAI_API_KEY from environment
@@ -4744,6 +4747,27 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.info(f"LLM_OK: request_id={request_id} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
             
+            # Safely extract response text with proper error handling
+            if not response:
+                logger.error(f"LLM response is None (request_id={request_id})")
+                return None
+            
+            if not hasattr(response, 'choices') or not response.choices:
+                logger.error(f"LLM response missing choices field (request_id={request_id})")
+                return None
+            
+            if len(response.choices) == 0:
+                logger.error(f"LLM response has empty choices array (request_id={request_id})")
+                return None
+            
+            if not hasattr(response.choices[0], 'message') or not response.choices[0].message:
+                logger.error(f"LLM response missing message field (request_id={request_id})")
+                return None
+            
+            if not hasattr(response.choices[0].message, 'content') or response.choices[0].message.content is None:
+                logger.error(f"LLM response missing content field (request_id={request_id})")
+                return None
+            
             response_text = response.choices[0].message.content.strip()
             llm_raw_preview = response_text[:200] if response_text else ""
             
@@ -4893,7 +4917,7 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
                 "model": llm_model,
                 "parse_stage": parse_stage,
                 "raw_preview": llm_raw_preview,
-                "missing_keys": missing_keys if missing_keys else []
+                "missing_keys": critical_missing if critical_missing else []
             }
             
             return rewritten_data
