@@ -3691,6 +3691,76 @@ async def read_root():
                 padding-top: 8px;
                 font-weight: 300;
             }}
+            .info-section {{
+                background: linear-gradient(to bottom, rgba(48, 48, 53, 0.95), #303035);
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                box-shadow: 
+                    0 2px 10px rgba(0, 0, 0, 0.25),
+                    0 1px 4px rgba(0, 0, 0, 0.15);
+                margin: 24px auto;
+                max-width: 600px;
+                padding: 20px;
+            }}
+            .info-section details {{
+                color: var(--alba-cream);
+            }}
+            .info-section summary {{
+                font-weight: 700;
+                color: var(--alba-cream);
+                font-size: 14px;
+                letter-spacing: -0.1px;
+                cursor: pointer;
+                padding: 4px 0;
+                list-style: none;
+                user-select: none;
+            }}
+            .info-section summary::-webkit-details-marker {{
+                display: none;
+            }}
+            .info-section summary::before {{
+                content: "▶";
+                display: inline-block;
+                margin-right: 8px;
+                font-size: 10px;
+                transition: transform 0.2s ease;
+                color: rgba(255, 247, 224, 0.6);
+            }}
+            .info-section details[open] summary::before {{
+                transform: rotate(90deg);
+            }}
+            .info-section .info-content {{
+                margin-top: 14px;
+                padding-top: 14px;
+                border-top: 1px solid rgba(255, 255, 255, 0.05);
+            }}
+            .info-bullets {{
+                list-style: none;
+                padding: 0;
+                margin: 0;
+            }}
+            .info-bullets li {{
+                padding: 8px 0;
+                padding-left: 20px;
+                position: relative;
+                line-height: 1.75;
+                color: var(--alba-cream);
+                font-size: 14px;
+                font-weight: 400;
+            }}
+            .info-bullets li:before {{
+                content: "•";
+                position: absolute;
+                left: 6px;
+                color: rgba(255, 247, 224, 0.7);
+                font-weight: 600;
+            }}
+            @media (max-width: 640px) {{
+                .info-section {{
+                    margin: 20px auto;
+                    padding: 16px;
+                }}
+            }}
         </style>
     </head>
     <body>
@@ -3954,6 +4024,20 @@ async def read_root():
             }})();
         </script>
             </div>
+        </div>
+        <div class="info-section">
+            <details open>
+                <summary>How Alba decides whether you should play today</summary>
+                <div class="info-content">
+                    <ul class="info-bullets">
+                        <li>Local weather (temperature, rain, wind)</li>
+                        <li>Ground conditions (soft, frozen, heavy)</li>
+                        <li>Course pressure and pace</li>
+                        <li>Daylight and time of day</li>
+                        <li>Handicap suitability</li>
+                    </ul>
+                </div>
+            </details>
         </div>
         <div class="build-footer">Build: {BUILD_TIME_UTC}</div>
         {IFRAME_RESIZE_SCRIPT}
