@@ -1230,40 +1230,38 @@ def get_playability_tier(overall_score: int) -> str:
         return "Rough"
 
 
-def classify_playability_tier(precipitation_label: str, precipitation_mm: float, wind_label: str, wind_speed_kmh: float, temperature_avg: float, ground_label: str) -> str:
+def classify_playability_tier(weather_label: str, wind_kmh: float, temp_c: float, ground_label: str) -> str:
     """
     Classify playability tier based ONLY on weather and ground conditions.
     Does NOT consider course difficulty or handicap.
     
     Args:
-        precipitation_label: "Dry", "Showers", or "Rain"
-        precipitation_mm: Precipitation in mm
-        wind_label: "Calm", "Breezy", or "Windy"
-        wind_speed_kmh: Wind speed in km/h
-        temperature_avg: Average temperature in Celsius
-        ground_label: "Firm", "Normal", "Soft", or "Too soft"
+        weather_label: Primary weather descriptor (Dry / Showers / Rain / Windy / Cold / Very cold)
+        wind_kmh: Wind speed in km/h (daily wind_speed_10m_max)
+        temp_c: Temperature in Celsius (daily temperature_2m_max or average)
+        ground_label: Ground condition label (Firm / Normal / Soft / Too soft)
     
     Returns: "Great", "Decent", "Challenging", or "Rough"
     """
     # Count negative factors
     negative_factors = 0
     
-    # Precipitation factors
-    if precipitation_label == "Rain" or precipitation_mm >= 5:
+    # Precipitation factors (derived from weather_label)
+    if weather_label == "Rain":
         negative_factors += 2  # Heavy rain is major negative
-    elif precipitation_label == "Showers" or (precipitation_mm >= 1 and precipitation_mm < 5):
+    elif weather_label == "Showers":
         negative_factors += 1  # Light rain is minor negative
     
     # Wind factors
-    if wind_label == "Windy" or wind_speed_kmh >= 30:
+    if wind_kmh >= 30:
         negative_factors += 2  # Strong wind is major negative
-    elif wind_label == "Breezy" or (wind_speed_kmh >= 20 and wind_speed_kmh < 30):
+    elif wind_kmh >= 20:
         negative_factors += 1  # Breezy is minor negative
     
     # Temperature factors
-    if temperature_avg < 5:
+    if temp_c < 5:
         negative_factors += 2  # Very cold is major negative
-    elif temperature_avg < 10:
+    elif temp_c < 10:
         negative_factors += 1  # Cold is minor negative
     
     # Ground factors
@@ -1357,11 +1355,11 @@ def get_suggested_plan(playability_tier: str) -> str:
     if playability_tier == "Great":
         return "18 holes"
     elif playability_tier == "Decent":
-        return "18 holes (or 9 if short on time)"
+        return "18 holes"
     elif playability_tier == "Challenging":
-        return "9 holes or a range session"
+        return "9 holes or range"
     else:  # Rough
-        return "Range and short game (or simulator)"
+        return "Range or short game"
 
 
 def generate_base_recommendation(playability_tier: str) -> Dict[str, str]:
@@ -4776,21 +4774,17 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # Classify playability tier based ONLY on weather and ground conditions
     # Extract weather data for tier classification
-    precipitation_mm = weather_data.get("precipitation", 0) if weather_data else 0
     wind_speed_kmh = weather_data.get("wind_speed", 0) if weather_data else 0
-    temp_min = weather_data.get("temperature_min", 10) if weather_data else 10
-    temp_max = weather_data.get("temperature_max", 10) if weather_data else 10
-    temp_avg = (temp_min + temp_max) / 2
+    temp_max = weather_data.get("temperature_max", 15) if weather_data else 15
     
-    # Get labels from weather_info and ground_info
-    precipitation_label = weather_info.get("precipitation_label", "Dry")
-    wind_label = weather_info.get("wind_label", "Calm")
+    # Get weather_label from weather_info (primary descriptor)
+    weather_label_primary = weather_info.get("weather_label", "Dry")
     
-    # Classify tier based only on conditions
+    # Classify tier based only on conditions using new signature
     playability_tier = classify_playability_tier(
-        precipitation_label, precipitation_mm,
-        wind_label, wind_speed_kmh,
-        temp_avg,
+        weather_label_primary,
+        wind_speed_kmh,
+        temp_max,
         ground_label
     )
     
