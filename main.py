@@ -819,6 +819,23 @@ def get_playability_tier(overall_score: int) -> str:
         return "Rough"
 
 
+# Decision classification mapping for structured output and AI interpretation
+PLAYABILITY_DECISION_MAPPING = {
+    "Great": "Great day to play",
+    "Decent": "Playable with adjustments",
+    "Challenging": "Tough but doable",
+    "Rough": "Not worth a full round"
+}
+
+
+def get_decision_classification(playability_tier: str) -> str:
+    """
+    Map playability_tier to decision classification.
+    Returns decision classification string for structured output and AI interpretation.
+    """
+    return PLAYABILITY_DECISION_MAPPING.get(playability_tier, "Unknown")
+
+
 def get_suggested_plan(playability_tier: str) -> str:
     """
     Map playability_tier to suggested plan.
@@ -1049,6 +1066,9 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     # Determine playability_tier from overall score
     playability_tier = get_playability_tier(overall_score)
     
+    # Get decision classification for structured output and AI interpretation
+    decision_classification = get_decision_classification(playability_tier)
+    
     # Generate recommendations based on factor thresholds
     # Use neutral phrasing when handicap is None, tailored phrasing when provided
     if playability_tier in ["Great", "Decent"]:
@@ -1152,6 +1172,7 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     return {
         "overall_score": overall_score,
         "playability_tier": playability_tier,
+        "decision_classification": decision_classification,
         "reasons": reasons,
         "recommendations": recommendations,
         "factor_scores": factor_scores,
