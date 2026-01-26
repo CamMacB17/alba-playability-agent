@@ -1447,91 +1447,110 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
     result["why_bullets"] = result["why_bullets"][:4]
     
     # Ensure what_you_could_do_bullets exists (list, max 2 for Great/Decent, max 3 for Challenging/Rough)
-    # Each bullet: one sentence, max 18 words, no dashes, no repetition of heading
+    # Each bullet: starts with verb/action, one sentence, max 18 words, no dashes, no repetition
+    # Friendly pro shop golfer tone: human, calm, joined-up, not dismissive
     max_what_bullets = 3 if tier in ["Challenging", "Rough"] else 2
     
     if "what_you_could_do_bullets" not in result or not isinstance(result["what_you_could_do_bullets"], list):
         if tier == "Decent":
-            # Decent: Primary action (18 holes) with reason, plus tactical tip
+            # Decent: Primary action with reason, plus tactical tip
             result["what_you_could_do_bullets"] = [
-                "18 holes works well today. Conditions are manageable so you'll get good value.",
-                "Book early morning or late afternoon to avoid peak crowds."
+                "Play 18 if you have the time. The ground is soft so expect less run on approaches.",
+                "If it is busy, go early or late so you keep rhythm and do not stand around."
             ]
         elif tier == "Great":
             result["what_you_could_do_bullets"] = [
-                "18 holes looks good today. Conditions are in your favour.",
-                "Early morning slots offer better pace when it's quieter."
+                "Play 18 if you have the time. Conditions are in your favour today.",
+                "Book early morning slots for better pace when it is quieter."
             ]
         else:  # Challenging or Rough
             result["what_you_could_do_bullets"] = [
-                "9 holes might be more manageable. You'll get better value from a shorter round.",
-                "Early morning slots offer better pace when it's quieter.",
-                "Range session lets you work on technique without pressure."
+                "Play 9 holes to avoid fighting through tough conditions.",
+                "Go early or late to keep rhythm and avoid standing around.",
+                "Hit the range to work on technique without pressure."
             ]
     # Ensure at least 2 items, cap at max_what_bullets
     if len(result["what_you_could_do_bullets"]) < 2:
         if tier == "Decent":
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "18 holes works well today. Conditions are manageable so you'll get good value.",
-                    "Book early morning or late afternoon to avoid peak crowds."
+                    "Play 18 if you have the time. The ground is soft so expect less run on approaches.",
+                    "If it is busy, go early or late so you keep rhythm and do not stand around."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Book early morning or late afternoon to avoid peak crowds.")
+                result["what_you_could_do_bullets"].append("If it is busy, go early or late so you keep rhythm and do not stand around.")
         elif tier == "Great":
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "18 holes looks good today. Conditions are in your favour.",
-                    "Early morning slots offer better pace when it's quieter."
+                    "Play 18 if you have the time. Conditions are in your favour today.",
+                    "Book early morning slots for better pace when it is quieter."
                 ]
             else:
-                result["what_you_could_do_bullets"].append("Early morning slots offer better pace when it's quieter.")
+                result["what_you_could_do_bullets"].append("Book early morning slots for better pace when it is quieter.")
         else:  # Challenging or Rough
             if len(result["what_you_could_do_bullets"]) == 0:
                 result["what_you_could_do_bullets"] = [
-                    "9 holes might be more manageable. You'll get better value from a shorter round.",
-                    "Early morning slots offer better pace when it's quieter.",
-                    "Range session lets you work on technique without pressure."
+                    "Play 9 holes to avoid fighting through tough conditions.",
+                    "Go early or late to keep rhythm and avoid standing around.",
+                    "Hit the range to work on technique without pressure."
                 ]
             elif len(result["what_you_could_do_bullets"]) == 1:
                 result["what_you_could_do_bullets"].extend([
-                    "Early morning slots offer better pace when it's quieter.",
-                    "Range session lets you work on technique without pressure."
+                    "Go early or late to keep rhythm and avoid standing around.",
+                    "Hit the range to work on technique without pressure."
                 ])
             elif len(result["what_you_could_do_bullets"]) == 2:
-                result["what_you_could_do_bullets"].append("Range session lets you work on technique without pressure.")
+                result["what_you_could_do_bullets"].append("Hit the range to work on technique without pressure.")
     # Cap at max_what_bullets
     result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:max_what_bullets]
     
-    # Ensure instead_activities exists (list, len 1) - always present, exactly 1 bullet
+    # Ensure instead_activities exists (list, len 1) - ALWAYS present, exactly 1 bullet
     # Format: "If you want [benefit]: [action]." - one tight line
-    if "instead_activities" not in result or not isinstance(result["instead_activities"], list):
-        if tier == "Challenging":
+    # Tier-based defaults to ensure card never disappears
+    if "instead_activities" not in result or not isinstance(result["instead_activities"], list) or len(result["instead_activities"]) == 0:
+        if tier == "Great":
             result["instead_activities"] = [
-                "If you want max value today: range plus short game."
-            ]
-        elif tier == "Rough":
-            result["instead_activities"] = [
-                "If you want max value today: range plus short game."
+                "If you want a lighter session: 9 holes or a quick short game session."
             ]
         elif tier == "Decent":
             result["instead_activities"] = [
-                "9 holes or a range session gives you good value if you're pressed for time."
+                "If you are short on time: 9 holes or a range session."
             ]
-        else:  # Great
+        elif tier == "Challenging":
             result["instead_activities"] = [
-                "9 holes works well if you're short on time."
+                "If you want it easier today: range and short game. If you still play: 9 holes."
+            ]
+        else:  # Rough
+            result["instead_activities"] = [
+                "Best alternative: range or simulator. Save the full round for another day."
             ]
     # Ensure exactly 1 item (template requirement: 1 bullet)
     if len(result["instead_activities"]) < 1:
-        if tier in ["Challenging", "Rough"]:
-            result["instead_activities"] = ["Range session or short game practice offers better value in these conditions."]
+        if tier == "Great":
+            result["instead_activities"] = ["If you want a lighter session: 9 holes or a quick short game session."]
         elif tier == "Decent":
-            result["instead_activities"] = ["9 holes or a range session gives you good value if you're pressed for time."]
-        else:  # Great
-            result["instead_activities"] = ["9 holes works well if you're short on time."]
+            result["instead_activities"] = ["If you are short on time: 9 holes or a range session."]
+        elif tier == "Challenging":
+            result["instead_activities"] = ["If you want it easier today: range and short game. If you still play: 9 holes."]
+        else:  # Rough
+            result["instead_activities"] = ["Best alternative: range or simulator. Save the full round for another day."]
     # Cap at 1 item (template requirement: 1 bullet)
     result["instead_activities"] = result["instead_activities"][:1]
+    
+    # Ensure if_not_try_this_instead is always populated (derived from instead_activities)
+    if "if_not_try_this_instead" not in result or not result.get("if_not_try_this_instead"):
+        if result["instead_activities"] and len(result["instead_activities"]) > 0:
+            result["if_not_try_this_instead"] = result["instead_activities"][0]
+        else:
+            # Fallback to tier-based defaults
+            if tier == "Great":
+                result["if_not_try_this_instead"] = "If you want a lighter session: 9 holes or a quick short game session."
+            elif tier == "Decent":
+                result["if_not_try_this_instead"] = "If you are short on time: 9 holes or a range session."
+            elif tier == "Challenging":
+                result["if_not_try_this_instead"] = "If you want it easier today: range and short game. If you still play: 9 holes."
+            else:  # Rough
+                result["if_not_try_this_instead"] = "Best alternative: range or simulator. Save the full round for another day."
     
     # Ensure if_you_play_tips exists (list, len 2-4) for Challenging/Rough, optional otherwise
     # Max 2 short sentences per bullet, no dashes, friendly pro shop tone
@@ -3264,16 +3283,16 @@ def normalize_suitability_label_for_display(suitability_label: str, handicap: in
 
 def generate_banner_summary(reasons, playability_tier, handicap, weather_label_display, ground_label_display, busyness_label, suitability_label_display):
     """
-    Generate a short, specific summary sentence for the banner explaining the decision.
+    Generate a short, specific summary for the banner explaining the decision.
+    Max 2 sentences. No colons. No hyphens. No repeating Playability + Best move.
+    Friendly pro shop golfer tone: human, calm, joined-up, not dismissive.
     Uses top drivers (weather/ground/busyness/handicap fit if provided).
-    Format: "[Factor conditions] will [impact]" (no handicap mention if None).
-    Example: "Cold air and soft ground will cost distance and make recovery shots harder."
     """
     if not reasons:
         if playability_tier in ["Great", "Decent"]:
-            return "Good conditions today."
+            return "Conditions are good for golf today."
         else:
-            return "Conditions add challenge today."
+            return "Conditions will test your game today."
     
     # Prioritize factors: weather, ground, busyness, suitability
     factor_priority = ["weather", "ground", "busyness", "suitability"]
@@ -3287,64 +3306,50 @@ def generate_banner_summary(reasons, playability_tier, handicap, weather_label_d
         if len(selected_factors) >= 2:  # Use top 2 factors
             break
     
-    # Build summary sentence from selected factors
-    condition_parts = []
-    impact_parts = []
+    # Build summary sentences from selected factors (max 2 sentences)
+    sentences = []
     
     # Weather part
     weather_reason = next((r for r in selected_factors if r.get("factor") == "weather"), None)
     if weather_reason:
         weather_desc = weather_label_display.lower()
         if weather_desc in ["rain", "light rain"]:
-            condition_parts.append(weather_desc)
-            impact_parts.append("affect ball flight")
+            sentences.append("Rain will affect ball flight and make the course play longer.")
         elif weather_desc == "windy":
-            condition_parts.append("wind")
-            impact_parts.append("affect ball flight")
+            sentences.append("Wind will affect ball flight and make club selection tricky.")
         elif weather_desc == "cold":
-            condition_parts.append("cold air")
-            impact_parts.append("cost distance")
+            sentences.append("Cold air will cost you distance and make the ball feel harder.")
         elif weather_desc == "frost risk":
-            condition_parts.append("frost risk")
-            impact_parts.append("affect play")
+            sentences.append("Frost risk means early starts might be delayed.")
     
     # Ground part
     ground_reason = next((r for r in selected_factors if r.get("factor") == "ground"), None)
     if ground_reason:
         ground_desc = ground_label_display.lower()
         if "soft" in ground_desc or "too soft" in ground_desc:
-            condition_parts.append("soft ground")
-            impact_parts.append("make recovery shots harder")
+            sentences.append("Soft ground will reduce roll and make recovery shots harder.")
         elif "firm" in ground_desc:
-            condition_parts.append("firm ground")
-            impact_parts.append("improve roll")
+            sentences.append("Firm ground will give you more roll and help your approach shots.")
     
     # Busyness part (only if significant and challenging/rough)
     if playability_tier in ["Challenging", "Rough"]:
         busyness_reason = next((r for r in selected_factors if r.get("factor") == "busyness"), None)
         if busyness_reason and busyness_label.lower() in ["busy", "very busy"]:
-            condition_parts.append(f"{busyness_label.lower()} conditions")
-            impact_parts.append("slow pace")
+            sentences.append("Busy conditions will slow pace and make it harder to keep rhythm.")
     
-    # Suitability part (only if challenging/rough and handicap provided)
-    if playability_tier in ["Challenging", "Rough"] and handicap is not None and suitability_label_display:
-        suitability_reason = next((r for r in selected_factors if r.get("factor") == "suitability"), None)
-        if suitability_reason and "tough" in suitability_label_display.lower():
-            # Already captured in ground/weather, but can add if needed
-            pass
-    
-    # Combine into sentence
-    if condition_parts and impact_parts:
-        # Use first 2 conditions and their impacts
-        conditions = " and ".join(condition_parts[:2])
-        impacts = " and ".join(impact_parts[:2])
-        return f"{conditions.capitalize()} will {impacts}."
+    # Combine into max 2 sentences (no colons, no hyphens)
+    if sentences:
+        # Take first 2 sentences, join with period and space
+        summary = ". ".join(sentences[:2])
+        if not summary.endswith("."):
+            summary += "."
+        return summary
     
     # Fallback
     if playability_tier in ["Great", "Decent"]:
-        return "Good conditions today."
+        return "Conditions are good for golf today."
     else:
-        return "Conditions add challenge today."
+        return "Conditions will test your game today."
 
 
 def generate_exposure_drainage_advice(
@@ -3388,7 +3393,7 @@ def generate_exposure_drainage_advice(
     
     # Rule 3: Good drainage - avoid doom language (already handled by tier logic, but can add positive note)
     if drainage == "Good" and ground_label in ["Soft", "Too soft"] and playability_tier != "Rough":
-        return "Good drainage helps even with recent rain—ground should recover faster."
+        return "Good drainage helps even with recent rain. Ground should recover faster."
     
     return ""
 
@@ -3976,10 +3981,15 @@ def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: D
         if instead_activities_det and len(instead_activities_det) > 0:
             result["if_not_try_this_instead"] = instead_activities_det[0]
         else:
-            if playability_tier in ["Challenging", "Rough"]:
-                result["if_not_try_this_instead"] = "If you want max value today: range plus short game."
-            else:
-                result["if_not_try_this_instead"] = "If you want it easier: play 9 and keep it moving."
+            # Tier-based defaults to ensure always non-empty
+            if playability_tier == "Great":
+                result["if_not_try_this_instead"] = "If you want a lighter session: 9 holes or a quick short game session."
+            elif playability_tier == "Decent":
+                result["if_not_try_this_instead"] = "If you are short on time: 9 holes or a range session."
+            elif playability_tier == "Challenging":
+                result["if_not_try_this_instead"] = "If you want it easier today: range and short game. If you still play: 9 holes."
+            else:  # Rough
+                result["if_not_try_this_instead"] = "Best alternative: range or simulator. Save the full round for another day."
     
     if "but_if_you_do_play" not in result or not isinstance(result.get("but_if_you_do_play"), list) or len(result.get("but_if_you_do_play", [])) < len(if_you_play_tips_det):
         but_result = result.get("but_if_you_do_play", [])
@@ -4230,7 +4240,7 @@ def generate_explanation_deterministic(weather_rating, ground_condition, busynes
     return " ".join(parts)
 
 
-async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[str, Any], request_id: str = None) -> Tuple[str, str, Dict[str, Any], Dict[str, Any]]:
+async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[str, Any], request_id: str = None, force_templates: bool = False) -> Tuple[str, str, Dict[str, Any], Dict[str, Any]]:
     """
     Single function to build final copy. Prioritizes LLM if llm_effective=True.
     
@@ -4238,6 +4248,7 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
         context: Dict with llm_effective (bool), openai_client, course_name, handicap, etc.
         deterministic_payload: Base deterministic payload to use as fallback
         request_id: Optional request ID for logging
+        force_templates: If True, skip LLM entirely and use templates only
     
     Returns:
         (copy_source, copy_builder_fn, copy_payload, errors)
@@ -4249,6 +4260,10 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
     llm_effective = context.get("llm_effective", False)
     openai_client = context.get("openai_client")
     errors = {}
+    
+    # If force_templates is True, skip LLM entirely and go straight to templates
+    if force_templates:
+        return "templates", "generate_recommendations", deterministic_payload, {}
     
     # If LLM is effective, attempt LLM generation
     if llm_effective and openai_client:
@@ -4265,65 +4280,83 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             # Add debug field for payload keys (always add for debugging)
             errors["llm_payload_keys"] = list(deterministic_payload_with_context.keys())
             
-            # Call LLM to rewrite copy - wrap in try/except to catch any exceptions
-            try:
-                llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
-            except Exception as llm_exception:
-                # Catch any exception from LLM call (timeout, API error, parse error, etc.)
-                # Log and fall back to templates
-                errors["llm_error_type"] = type(llm_exception).__name__
-                errors["llm_error_message"] = str(llm_exception)
-                errors["llm_raw_preview"] = ""
-                errors["llm_parse_stage"] = "exception_during_call"
-                logger.error(f"LLM call failed, falling back to templates: {str(llm_exception)}", exc_info=True)
+            # Call LLM to rewrite copy - llm_rewrite_assessment_copy returns None on any error (never raises)
+            llm_output = await llm_rewrite_assessment_copy(deterministic_payload_with_context, request_id)
+            
+            # If LLM returned None (any error occurred), fall back to templates
+            if llm_output is None:
+                logger.warning(f"LLM returned None, falling back to templates (request_id={request_id})")
+                # Try to get error details from errors dict if available
+                if not errors.get("llm_error_type"):
+                    errors["llm_error_type"] = "llm_returned_none"
+                    errors["llm_error_message"] = "LLM call returned None (error occurred)"
                 return "templates", "generate_recommendations", deterministic_payload, errors
             
-            # Validate required keys (post-processor should have ensured all keys exist)
-            required_keys = [
-                "headline",
-                "best_move",
-                "banner_summary_line",
-                "why_bullets",
-                "what_you_could_do",
-                "if_not_try_this_instead",
-                "but_if_you_do_play"
-            ]
+            # Map Format B (legacy) to Format A if needed
+            # Format B keys: headline, what_you_could_do_bullets, instead_activities, if_you_play_tips
+            # Format A keys: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
             
-            missing_keys = []
-            for key in required_keys:
-                if key not in llm_output:
-                    missing_keys.append(key)
-                elif key == "banner_summary_line":
-                    # banner_summary_line must be a non-empty string
-                    if not isinstance(llm_output[key], str) or not llm_output[key].strip():
-                        missing_keys.append(key)
-                elif key == "if_not_try_this_instead":
-                    # if_not_try_this_instead must be a non-empty string
-                    if not isinstance(llm_output[key], str) or not llm_output[key].strip():
-                        missing_keys.append(key)
-                elif key in ["why_bullets", "what_you_could_do", "but_if_you_do_play"]:
-                    # Lists must exist and be non-empty
-                    if not isinstance(llm_output[key], list) or len(llm_output[key]) == 0:
-                        missing_keys.append(key)
+            if "headline" in llm_output and "banner_summary_line" not in llm_output:
+                llm_output["banner_summary_line"] = llm_output["headline"]
             
-            if missing_keys:
-                errors["llm_error_type"] = "missing_keys"
-                errors["llm_error_message"] = f"Missing or empty required keys: {', '.join(missing_keys)}"
-                errors["llm_raw_preview"] = str(llm_output)[:200]
-                # Fall back to templates
-                return "templates", "generate_recommendations", deterministic_payload, errors
+            if "what_you_could_do_bullets" in llm_output and "what_you_could_do" not in llm_output:
+                llm_output["what_you_could_do"] = llm_output["what_you_could_do_bullets"]
             
-            # Map LLM output keys to expected format
-            # LLM returns: headline, banner_summary_line, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
-            # Expected format: banner_summary_line, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
-            # (headline is used for banner_summary_line, so they should match after post-processing)
+            if "instead_activities" in llm_output:
+                instead_val = llm_output["instead_activities"]
+                if isinstance(instead_val, list):
+                    llm_output["if_not_try_this_instead"] = instead_val[0] if instead_val else ""
+                elif isinstance(instead_val, str):
+                    llm_output["if_not_try_this_instead"] = instead_val
             
-            # Validate structure matches deterministic payload
-            is_valid, validation_reason = validate_llm_output(llm_output, deterministic_payload)
+            if "if_you_play_tips" in llm_output and "but_if_you_do_play" not in llm_output:
+                tips_val = llm_output["if_you_play_tips"]
+                if isinstance(tips_val, list):
+                    llm_output["but_if_you_do_play"] = tips_val
+                elif isinstance(tips_val, str):
+                    llm_output["but_if_you_do_play"] = [tips_val] if tips_val else []
             
-            if not is_valid:
-                errors["llm_error_type"] = "validation_failed"
-                errors["llm_error_message"] = validation_reason
+            # Validate Format A critical keys (lenient - only reject truly unusable)
+            # Format A required: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
+            
+            critical_missing = []
+            
+            # Check banner_summary_line (can derive from headline)
+            if "banner_summary_line" not in llm_output:
+                if "headline" in llm_output and llm_output["headline"]:
+                    llm_output["banner_summary_line"] = llm_output["headline"]
+                else:
+                    critical_missing.append("banner_summary_line")
+            elif not isinstance(llm_output["banner_summary_line"], str) or not llm_output["banner_summary_line"].strip():
+                critical_missing.append("banner_summary_line (empty)")
+            
+            # Check what_you_could_do_bullets (can derive from what_you_could_do)
+            if "what_you_could_do_bullets" not in llm_output:
+                if "what_you_could_do" in llm_output and isinstance(llm_output["what_you_could_do"], list):
+                    llm_output["what_you_could_do_bullets"] = llm_output["what_you_could_do"]
+                elif "what_you_could_do" in llm_output and llm_output["what_you_could_do"]:
+                    llm_output["what_you_could_do_bullets"] = [llm_output["what_you_could_do"]]
+                else:
+                    critical_missing.append("what_you_could_do_bullets")
+            
+            # Check if_not_try_this_instead (accept string or list, convert list to string)
+            if "if_not_try_this_instead" not in llm_output:
+                critical_missing.append("if_not_try_this_instead")
+            elif isinstance(llm_output["if_not_try_this_instead"], list):
+                llm_output["if_not_try_this_instead"] = llm_output["if_not_try_this_instead"][0] if llm_output["if_not_try_this_instead"] else ""
+            elif not isinstance(llm_output["if_not_try_this_instead"], str) or not llm_output["if_not_try_this_instead"].strip():
+                critical_missing.append("if_not_try_this_instead (empty)")
+            
+            # Check but_if_you_do_play (must be list)
+            if "but_if_you_do_play" not in llm_output:
+                critical_missing.append("but_if_you_do_play")
+            elif not isinstance(llm_output["but_if_you_do_play"], list):
+                llm_output["but_if_you_do_play"] = [llm_output["but_if_you_do_play"]] if llm_output["but_if_you_do_play"] else []
+            
+            # Only reject if critical keys are missing (truly unusable)
+            if critical_missing:
+                errors["llm_error_type"] = "missing_critical_keys"
+                errors["llm_error_message"] = f"Missing critical keys: {', '.join(critical_missing)}"
                 errors["llm_raw_preview"] = str(llm_output)[:200]
                 # Fall back to templates
                 return "templates", "generate_recommendations", deterministic_payload, errors
@@ -4340,16 +4373,35 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             elif "headline" in llm_output:
                 final_payload["banner_summary_line"] = llm_output["headline"]
             
-            if "what_you_could_do" in llm_output:
+            # Map what_you_could_do_bullets (Format A) or what_you_could_do (Format A alternative)
+            if "what_you_could_do_bullets" in llm_output:
+                final_payload["what_you_could_do_bullets"] = llm_output["what_you_could_do_bullets"]
+            elif "what_you_could_do" in llm_output:
                 final_payload["what_you_could_do_bullets"] = llm_output["what_you_could_do"]
             
+            # Map if_not_try_this_instead (Format A) or instead_activities (Format B)
             if "if_not_try_this_instead" in llm_output:
                 # Convert string to list (expected format)
                 instead_str = llm_output["if_not_try_this_instead"]
                 final_payload["instead_activities"] = [instead_str] if instead_str else []
+            elif "instead_activities" in llm_output:
+                # Format B - already a list or string
+                instead_val = llm_output["instead_activities"]
+                if isinstance(instead_val, list):
+                    final_payload["instead_activities"] = instead_val
+                else:
+                    final_payload["instead_activities"] = [instead_val] if instead_val else []
             
+            # Map but_if_you_do_play (Format A) or if_you_play_tips (Format B)
             if "but_if_you_do_play" in llm_output:
                 final_payload["if_you_play_tips"] = llm_output["but_if_you_do_play"]
+            elif "if_you_play_tips" in llm_output:
+                # Format B - already a list or string
+                tips_val = llm_output["if_you_play_tips"]
+                if isinstance(tips_val, list):
+                    final_payload["if_you_play_tips"] = tips_val
+                else:
+                    final_payload["if_you_play_tips"] = [tips_val] if tips_val else []
             
             # Preserve other LLM fields
             if "why_bullets" in llm_output:
@@ -4384,7 +4436,7 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
     return "templates", "generate_recommendations", deterministic_payload, {}
 
 
-async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], request_id: str = None) -> Dict[str, Any]:
+async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], request_id: str = None) -> Optional[Dict[str, Any]]:
     """
     Rewrite assessment copy using LLM for clarity. LLM can ONLY rewrite text, not structure.
     
@@ -4398,8 +4450,7 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
         - reasons: list[dict] - rewrite "impact" text only
         - recommendations: list[dict] - rewrite "reason" text only
     
-    Returns: dict with SAME SHAPE, rewritten text only
-    Raises exception if API call fails or returns invalid structure.
+    Returns: dict with SAME SHAPE, rewritten text only, OR None if any error occurs (never raises).
     """
     import json
     
@@ -4407,151 +4458,167 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
         """Safely serialize object to JSON, using str() as fallback for non-serializable types."""
         return json.dumps(obj, ensure_ascii=False, default=str)
     
-    # Read OPENAI_API_KEY from environment
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY missing")
-    
-    # Import OpenAI (will be imported again with timeout config below)
+    # Wrap entire function in try/except to ensure we never raise - always return None on error
     try:
-        from openai import OpenAI
-    except ImportError:
-        raise ValueError("OpenAI package not installed")
-    
-    # Extract deterministic data with resilient fallbacks
-    # Get playability_tier with fallbacks: playability_tier -> tier -> computed default
-    playability_tier = deterministic_payload.get("playability_tier") or deterministic_payload.get("tier") or "Decent"
-    best_move = deterministic_payload.get("best_move", "18 holes")
-    why_bullets = deterministic_payload.get("why_bullets", [])
-    what_you_could_do_bullets = deterministic_payload.get("what_you_could_do_bullets", [])
-    instead_activities = deterministic_payload.get("instead_activities", [])
-    if_you_play_tips = deterministic_payload.get("if_you_play_tips", [])
-    reasons = deterministic_payload.get("reasons", [])
-    recommendations = deterministic_payload.get("recommendations", [])
-    
-    # Extract tier_reasons for banner_summary generation
-    tier_reasons = deterministic_payload.get("tier_reasons", [])
-    
-    # Extract context for handicap weighting rules
-    handicap = deterministic_payload.get("handicap")
-    course_name = deterministic_payload.get("course_name", "")
-    course_difficulty = None  # Will be extracted if available
-    
-    # Extract raw labels if available (for context, not for rewriting)
-    weather_label = deterministic_payload.get("weather_label", "")
-    ground_label = deterministic_payload.get("ground_label", "")
-    busyness_label = deterministic_payload.get("busyness_label", "")
-    daylight_label = deterministic_payload.get("daylight_label", "")
-    suitability_label = deterministic_payload.get("suitability_label", "")
-    
-    # Extract banner_summary_line if available
-    banner_summary_line = deterministic_payload.get("banner_summary_line", "")
-    
-    # Build safe LLM payload with only JSON-serializable fields (no nested objects)
-    # This prevents crashes from non-serializable objects like reasons/recommendations dicts
-    llm_payload = {
-        "playability_tier": playability_tier,
-        "course_name": course_name or "",
-        "handicap": handicap,
-        "best_move": best_move,
-        "banner_summary_line": banner_summary_line,
-        "why_bullets": why_bullets if isinstance(why_bullets, list) else [],
-        "what_you_could_do_bullets": what_you_could_do_bullets if isinstance(what_you_could_do_bullets, list) else [],
-        "instead_activities": instead_activities if isinstance(instead_activities, list) else [],
-        "if_you_play_tips": if_you_play_tips if isinstance(if_you_play_tips, list) else [],
-        "tier_reasons": tier_reasons if isinstance(tier_reasons, list) else [],
-        "weather_label": weather_label or "",
-        "ground_label": ground_label or "",
-        "busyness_label": busyness_label or "",
-        "daylight_label": daylight_label or "",
-        "suitability_label": suitability_label or ""
-    }
-    
-    # Ensure all list items are strings (safety check)
-    def ensure_string_list(lst):
-        if not isinstance(lst, list):
-            return []
-        return [str(item) if item is not None else "" for item in lst]
-    
-    llm_payload["why_bullets"] = ensure_string_list(llm_payload["why_bullets"])
-    llm_payload["what_you_could_do_bullets"] = ensure_string_list(llm_payload["what_you_could_do_bullets"])
-    llm_payload["instead_activities"] = ensure_string_list(llm_payload["instead_activities"])
-    llm_payload["if_you_play_tips"] = ensure_string_list(llm_payload["if_you_play_tips"])
-    llm_payload["tier_reasons"] = ensure_string_list(llm_payload["tier_reasons"])
-    
-    # Determine max bullets for what_you_could_do based on tier
-    max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
-    
-    # Build example JSON schema with actual values for clarity
-    example_json = {
-        "headline": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
-        "best_move": best_move,
-        "banner_summary_line": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
-        "why_bullets": [
-            "Weather conditions are challenging with cold temperatures reducing ball distance.",
-            "The course ground is soft from recent rain, which will affect roll and lie quality.",
-            "At your handicap level, these conditions will make scoring more difficult than usual."
-        ],
-        "what_you_could_do": [
-            "Book early morning slots for better pace and smoother rounds.",
-            "Consider 9 holes if you want to avoid fighting conditions."
-        ] if playability_tier in ["Great", "Decent"] else [
-            "Book 9 holes to avoid fighting through tough conditions.",
-            "Early morning slots offer better pace when it's quieter.",
-            "Range session lets you work on technique without pressure."
-        ],
-        "if_not_try_this_instead": "If you want max value today: range plus short game." if playability_tier in ["Challenging", "Rough"] else "If you want it easier: play 9 and keep it moving.",
-        "but_if_you_do_play": [
-            "Pack waterproofs and a spare glove. Conditions can change quickly and staying dry keeps you comfortable.",
-            "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
-            "Adjust expectations and focus on technique. Today's about building good habits, not scoring low."
-        ]
-    }
-    
-    request_id_str = f" request_id={request_id}" if request_id else ""
-    
-    # Timing and model config
-    llm_timeout_seconds = 20.0
-    llm_model = "gpt-4o-mini"
-    max_output_tokens = 350
-    
-    # Create client with explicit timeout
-    from openai import OpenAI
-    client_with_timeout = OpenAI(
-        api_key=api_key,
-        timeout=llm_timeout_seconds  # Connect + read timeout
-    )
-    
-    import time
-    start_time = time.time()
-    
-    # Debug log: show payload dict if debug_mode is enabled (passed via deterministic_payload)
-    debug_mode = deterministic_payload.get("_debug_mode", False)
-    if debug_mode:
+        # Read OPENAI_API_KEY from environment
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.error(f"OPENAI_API_KEY missing (request_id={request_id})")
+            return None
+        
+        # Import OpenAI (will be imported again with timeout config below)
         try:
-            logger.info(f"LLM_PAYLOAD request_id={request_id} payload={safe_json(llm_payload)}")
-        except Exception as e:
-            logger.warning(f"Failed to log LLM payload: {e}")
-    
-    # Build prompt safely - wrap in try-except to prevent crashes
-    try:
-        prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
+            from openai import OpenAI
+        except ImportError:
+            logger.error(f"OpenAI package not installed (request_id={request_id})")
+            return None
+        
+        # Extract deterministic data with resilient fallbacks
+        # Ensure playability_tier is always present in payload before building prompt
+        # Try multiple fallback keys to be resilient
+        playability_tier = (
+            deterministic_payload.get("playability_tier") or 
+            deterministic_payload.get("tier") or 
+            deterministic_payload.get("Playability Tier") or 
+            "Unknown"
+        )
+        # Ensure it's set in the payload for prompt building
+        deterministic_payload["playability_tier"] = playability_tier
+        best_move = deterministic_payload.get("best_move", "18 holes")
+        why_bullets = deterministic_payload.get("why_bullets", [])
+        what_you_could_do_bullets = deterministic_payload.get("what_you_could_do_bullets", [])
+        instead_activities = deterministic_payload.get("instead_activities", [])
+        if_you_play_tips = deterministic_payload.get("if_you_play_tips", [])
+        reasons = deterministic_payload.get("reasons", [])
+        recommendations = deterministic_payload.get("recommendations", [])
+        
+        # Extract tier_reasons for banner_summary generation
+        tier_reasons = deterministic_payload.get("tier_reasons", [])
+        
+        # Extract context for handicap weighting rules
+        handicap = deterministic_payload.get("handicap")
+        course_name = deterministic_payload.get("course_name", "")
+        course_difficulty = None  # Will be extracted if available
+        
+        # Extract raw labels if available (for context, not for rewriting)
+        weather_label = deterministic_payload.get("weather_label", "")
+        ground_label = deterministic_payload.get("ground_label", "")
+        busyness_label = deterministic_payload.get("busyness_label", "")
+        daylight_label = deterministic_payload.get("daylight_label", "")
+        suitability_label = deterministic_payload.get("suitability_label", "")
+        
+        # Extract banner_summary_line if available
+        banner_summary_line = deterministic_payload.get("banner_summary_line", "")
+        
+        # Build safe LLM payload with only JSON-serializable fields (no nested objects)
+        # This prevents crashes from non-serializable objects like reasons/recommendations dicts
+        # Ensure playability_tier is always in the payload
+        llm_payload = {
+            "playability_tier": playability_tier,  # Always present (set above)
+            "course_name": course_name or "",
+            "handicap": handicap,
+            "best_move": best_move,
+            "banner_summary_line": banner_summary_line,
+            "why_bullets": why_bullets if isinstance(why_bullets, list) else [],
+            "what_you_could_do_bullets": what_you_could_do_bullets if isinstance(what_you_could_do_bullets, list) else [],
+            "instead_activities": instead_activities if isinstance(instead_activities, list) else [],
+            "if_you_play_tips": if_you_play_tips if isinstance(if_you_play_tips, list) else [],
+            "tier_reasons": tier_reasons if isinstance(tier_reasons, list) else [],
+            "weather_label": weather_label or "",
+            "ground_label": ground_label or "",
+            "busyness_label": busyness_label or "",
+            "daylight_label": daylight_label or "",
+            "suitability_label": suitability_label or ""
+        }
+        
+        # Ensure all list items are strings (safety check)
+        def ensure_string_list(lst):
+            if not isinstance(lst, list):
+                return []
+            return [str(item) if item is not None else "" for item in lst]
+        
+        llm_payload["why_bullets"] = ensure_string_list(llm_payload["why_bullets"])
+        llm_payload["what_you_could_do_bullets"] = ensure_string_list(llm_payload["what_you_could_do_bullets"])
+        llm_payload["instead_activities"] = ensure_string_list(llm_payload["instead_activities"])
+        llm_payload["if_you_play_tips"] = ensure_string_list(llm_payload["if_you_play_tips"])
+        llm_payload["tier_reasons"] = ensure_string_list(llm_payload["tier_reasons"])
+        
+        # Determine max bullets for what_you_could_do based on tier
+        max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
+        
+        # Build example JSON schema with actual values for clarity
+        example_json = {
+            "headline": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
+            "best_move": best_move,
+            "banner_summary_line": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
+            "why_bullets": [
+                "Weather conditions are challenging with cold temperatures reducing ball distance.",
+                "The course ground is soft from recent rain, which will affect roll and lie quality.",
+                "At your handicap level, these conditions will make scoring more difficult than usual."
+            ],
+            "what_you_could_do": [
+                "Book early morning slots for better pace and smoother rounds.",
+                "Consider 9 holes if you want to avoid fighting conditions."
+            ] if playability_tier in ["Great", "Decent"] else [
+                "Book 9 holes to avoid fighting through tough conditions.",
+                "Early morning slots offer better pace when it's quieter.",
+                "Range session lets you work on technique without pressure."
+            ],
+            "if_not_try_this_instead": "If you want max value today: range plus short game." if playability_tier in ["Challenging", "Rough"] else "If you want it easier: play 9 and keep it moving.",
+            "but_if_you_do_play": [
+                "Pack waterproofs and a spare glove. Conditions can change quickly and staying dry keeps you comfortable.",
+                "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
+                "Adjust expectations and focus on technique. Today's about building good habits, not scoring low."
+            ]
+        }
+        
+        request_id_str = f" request_id={request_id}" if request_id else ""
+        
+        # Timing and model config
+        llm_timeout_seconds = 20.0
+        llm_model = "gpt-4o-mini"
+        max_output_tokens = 350
+        
+        # Create client with explicit timeout
+        from openai import OpenAI
+        client_with_timeout = OpenAI(
+            api_key=api_key,
+            timeout=llm_timeout_seconds  # Connect + read timeout
+        )
+        
+        import time
+        start_time = time.time()
+        
+        # Debug log: show payload dict if debug_mode is enabled (passed via deterministic_payload)
+        debug_mode = deterministic_payload.get("_debug_mode", False)
+        if debug_mode:
+            try:
+                logger.info(f"LLM_PAYLOAD request_id={request_id} payload={safe_json(llm_payload)}")
+            except Exception as e:
+                logger.warning(f"Failed to log LLM payload: {e}")
+        
+        # Build prompt safely - wrap in try-except to prevent crashes
+        try:
+            prompt = f"""You are a friendly, calm "pro shop" person rewriting golf course assessment text. You explain trade-offs, sound human, and are never dismissive or robotic.
 
 CRITICAL: You MUST return STRICT JSON ONLY. No markdown, no code blocks, no commentary, no explanations. Just pure JSON.
 
 VOICE & STYLE RULES:
 1. Friendly, calm "pro shop" person - like chatting with someone who knows golf
-2. Explain trade-offs - help people understand what they're dealing with (e.g., "You'll get more out of X than slogging through Y.")
-3. Sound human - conversational, not robotic
-4. Never dismissive - never say "go away" or make people feel unwelcome
-5. Never robotic commands - avoid "Play 18." "Enjoy your round." "Go play." "Conditions are suitable today."
-6. Each bullet should feel like a helpful tip, not an order
-7. Use UK tone and spelling (colour, realise, etc.)
-8. Avoid judgement language about handicap - handicap is just context, not a limitation
-9. Never claim certainty - use "likely", "tends to", "you'll probably", "might", "could"
-10. Sentences should be short and friendly, like a pro shop assistant
-11. Do NOT repeat the section title in the bullet body (e.g., don't start with "Why:" or "What you could do:")
-12. NO em dashes (—), NO en dashes (–), NO hyphens used as punctuation (-). Use periods or commas instead.
+2. Human, calm, joined-up, not dismissive - sound like a real golfer giving advice
+3. Explain trade-offs - help people understand what they're dealing with (e.g., "You'll get more out of X than slogging through Y.")
+4. Sound human - conversational, not robotic
+5. Never dismissive - never say "go away" or make people feel unwelcome
+6. Never robotic commands - avoid "Play 18." "Enjoy your round." "Go play." "Conditions are suitable today."
+7. Each bullet should feel like a helpful tip, not an order
+8. Use UK tone and spelling (colour, realise, etc.)
+9. Avoid judgement language about handicap - handicap is just context, not a limitation
+10. Never claim certainty - use "likely", "tends to", "you'll probably", "might", "could"
+11. Sentences should be short and friendly, like a pro shop assistant
+12. Do NOT repeat the section title in the bullet body (e.g., don't start with "Why:" or "What you could do:")
+13. NO em dashes (—), NO en dashes (–), NO hyphens used as punctuation (-). Use periods or commas instead.
+14. Remove repetition - do not say "18 holes. conditions are good for a full round." Instead say "Play 18 if you have the time. Conditions are manageable."
+15. Bullets should start with verbs or clear actions, not "18 holes." Example: "Play 18 if you have the time. The ground is soft so expect less run on approaches."
 
 HANDICAP WEIGHTING RULES:
 - Handicap only mentioned if tier is Challenging/Rough OR course difficulty is Hard
@@ -4569,9 +4636,9 @@ You MUST return ONLY valid JSON matching this exact structure. Copy this format 
 REQUIRED KEYS (all must be present):
 - headline: string - 1 sentence summary in friendly tone explaining WHY the tier is what it is (useful and specific, not flat)
 - best_move: string - MUST be exactly "{best_move}" (do not change)
-- banner_summary_line: string - Same as headline (1 sentence summary)
+- banner_summary_line: string - Max 2 sentences. No colons. No hyphens. No repeating Playability + Best move. Friendly pro shop golfer tone.
 - why_bullets: array of exactly 3 strings - Weather/ground first, then course, handicap only if relevant
-- what_you_could_do: array of {max_what_bullets} strings max ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")}) - Each bullet: one sentence, max 18 words, actionable, not generic. Do NOT repeat the heading or restate "18 holes" without a reason.
+- what_you_could_do: array of {max_what_bullets} strings max ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")}) - Each bullet: starts with verb/action, one sentence, max 18 words, actionable, not generic. Do NOT repeat the heading or restate "18 holes" without a reason. Example: "Play 18 if you have the time. The ground is soft so expect less run on approaches."
 - if_not_try_this_instead: string - One tight line following format "If you want [benefit]: [action]." Examples: "If you want max value today: range plus short game." or "If you want it easier: play 9 and keep it moving."
 - but_if_you_do_play: array of exactly {len(if_you_play_tips)} strings - Practical tips if they decide to play
 
@@ -4593,12 +4660,25 @@ STYLE ENFORCEMENT:
 
 WHAT_YOU_COULD_DO RULES (CRITICAL):
 - Maximum {max_what_bullets} bullets ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")})
-- Each bullet: exactly one sentence, maximum 18 words
-- NO hyphens or em dashes anywhere in the bullet
+- Each bullet: starts with verb or clear action, exactly one sentence, maximum 18 words
+- NO hyphens or em dashes anywhere in the bullet. Use periods or commas instead.
 - Do NOT repeat the heading "What you could do" in the bullet text
-- Do NOT restate "18 holes" without a specific reason (e.g., "18 holes works well" is bad, "18 holes in morning slots avoids peak crowds" is good)
+- Do NOT restate "18 holes" without a specific reason (e.g., "18 holes works well" is bad, "Play 18 if you have the time. The ground is soft so expect less run." is good)
+- Remove repetition - do not say "18 holes. conditions are good for a full round." Instead say "Play 18 if you have the time. Conditions are manageable."
 - Be actionable and specific, not generic
-- Keep it tight and friendly
+- Keep it tight and friendly, like a pro shop golfer
+- Example good bullets:
+  * "Play 18 if you have the time. The ground is soft so expect less run on approaches."
+  * "If it is busy, go early or late so you keep rhythm and do not stand around."
+  * "Hit the range to work on technique without pressure."
+
+BANNER_SUMMARY_LINE RULES (CRITICAL):
+- Maximum 2 sentences
+- No colons
+- No hyphens (em dashes, en dashes, or hyphens used as punctuation)
+- No repeating what is already in Playability + Best move
+- Friendly pro shop golfer tone: human, calm, joined-up, not dismissive
+- Example: "Cold air will cost you distance. Soft ground will reduce roll and make recovery shots harder."
 
 HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
 - "Play 18."
@@ -4607,13 +4687,13 @@ HARD BLOCKLIST - OUTPUT MUST NOT CONTAIN:
 - Em dashes (—), en dashes (–), or hyphens used as punctuation (-)
 
 Return ONLY valid JSON matching the exact schema above. No markdown, no code blocks, no explanations."""
-        logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
-    except Exception as e:
-        # If prompt building fails (e.g., JSON serialization error), log and re-raise
-        # This will be caught by build_final_copy and fall back to templates
-        logger.error(f"Failed to build LLM prompt: {str(e)}", exc_info=True)
-        # Raise ValueError - will be caught by build_final_copy and fall back to templates
-        raise ValueError(f"Failed to build LLM prompt: {str(e)}")
+            logger.info(f"Calling OpenAI to rewrite assessment copy{request_id_str}")
+        except Exception as e:
+        # If prompt building fails (e.g., JSON serialization error), log and return None
+        # build_final_copy will fall back to templates
+        logger.error(f"Failed to build LLM prompt (request_id={request_id}): {str(e)}", exc_info=True)
+        # Return None instead of raising - build_final_copy will fall back to templates
+        return None
     
     try:
         # First attempt
@@ -4670,8 +4750,8 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
         if parsed_data is None:
             elapsed_ms = int((time.time() - start_time) * 1000)
             logger.error(f"LLM parse failed: all salvage attempts failed duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
-            # Raise ValueError - will be caught by build_final_copy and fall back to templates
-            raise ValueError("LLM returned invalid JSON structure - all parse attempts failed")
+            # Return None instead of raising - build_final_copy will fall back to templates
+            return None
         
         # Determine parse stage (check if it was direct JSON or salvage)
         try:
@@ -4693,37 +4773,91 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
         # Post-process: map keys, fill defaults, enforce style rules
         rewritten_data = post_process_llm_output(parsed_data, deterministic_payload)
         
-        # Validate required keys and types (after post-processing, so defaults should be filled)
-        required_keys = {
-            "headline": str,
-            "best_move": str,
-            "banner_summary_line": str,
-            "why_bullets": list,
-            "what_you_could_do": list,
-            "if_not_try_this_instead": str,
-            "but_if_you_do_play": list
-        }
+        # Map Format B (legacy) to Format A if needed
+        # Format B keys: headline, best_move, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
+        # Format A keys: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
         
-        missing_keys = []
-        for key, expected_type in required_keys.items():
-            if key not in rewritten_data:
-                missing_keys.append(key)
-            elif not isinstance(rewritten_data[key], expected_type):
-                missing_keys.append(f"{key} (wrong type: {type(rewritten_data[key]).__name__})")
-            elif key == "headline" and (not rewritten_data[key] or not rewritten_data[key].strip()):
-                missing_keys.append(f"{key} (empty)")
-            elif key == "banner_summary_line" and (not rewritten_data[key] or not rewritten_data[key].strip()):
-                missing_keys.append(f"{key} (empty)")
-            elif key == "if_not_try_this_instead" and (not rewritten_data[key] or not rewritten_data[key].strip()):
-                missing_keys.append(f"{key} (empty)")
-            elif isinstance(rewritten_data[key], list) and len(rewritten_data[key]) == 0:
-                missing_keys.append(f"{key} (empty list)")
+        # Check if we have Format B (legacy format)
+        has_format_b = (
+            "headline" in rewritten_data or
+            "what_you_could_do_bullets" in rewritten_data or
+            "instead_activities" in rewritten_data or
+            "if_you_play_tips" in rewritten_data
+        )
         
-        if missing_keys:
+        # Map Format B to Format A
+        if has_format_b:
+            # Map headline to banner_summary_line if banner_summary_line is missing
+            if "headline" in rewritten_data and "banner_summary_line" not in rewritten_data:
+                rewritten_data["banner_summary_line"] = rewritten_data["headline"]
+            
+            # Map what_you_could_do_bullets to what_you_could_do if needed
+            if "what_you_could_do_bullets" in rewritten_data and "what_you_could_do" not in rewritten_data:
+                rewritten_data["what_you_could_do"] = rewritten_data["what_you_could_do_bullets"]
+            
+            # Map instead_activities to if_not_try_this_instead if needed
+            if "instead_activities" in rewritten_data:
+                instead_val = rewritten_data["instead_activities"]
+                if isinstance(instead_val, list):
+                    # Convert list to string (take first item or join)
+                    rewritten_data["if_not_try_this_instead"] = instead_val[0] if instead_val else ""
+                elif isinstance(instead_val, str):
+                    rewritten_data["if_not_try_this_instead"] = instead_val
+            
+            # Map if_you_play_tips to but_if_you_do_play if needed
+            if "if_you_play_tips" in rewritten_data and "but_if_you_do_play" not in rewritten_data:
+                tips_val = rewritten_data["if_you_play_tips"]
+                if isinstance(tips_val, list):
+                    rewritten_data["but_if_you_do_play"] = tips_val
+                elif isinstance(tips_val, str):
+                    rewritten_data["but_if_you_do_play"] = [tips_val] if tips_val else []
+        
+        # Validate Format A required keys (lenient - only reject truly unusable output)
+        # Format A required keys:
+        # - banner_summary_line (string)
+        # - what_you_could_do_bullets (list[str]) OR what_you_could_do (list[str])
+        # - if_not_try_this_instead (string OR list[str])
+        # - but_if_you_do_play (list[str])
+        
+        critical_missing = []
+        
+        # Check banner_summary_line (can derive from headline if missing)
+        if "banner_summary_line" not in rewritten_data:
+            if "headline" in rewritten_data and rewritten_data["headline"]:
+                rewritten_data["banner_summary_line"] = rewritten_data["headline"]
+            else:
+                critical_missing.append("banner_summary_line")
+        
+        # Check what_you_could_do_bullets (accept what_you_could_do as alternative)
+        if "what_you_could_do_bullets" not in rewritten_data:
+            if "what_you_could_do" in rewritten_data and isinstance(rewritten_data["what_you_could_do"], list):
+                rewritten_data["what_you_could_do_bullets"] = rewritten_data["what_you_could_do"]
+            elif "what_you_could_do" in rewritten_data and rewritten_data["what_you_could_do"]:
+                # Single value, convert to list
+                rewritten_data["what_you_could_do_bullets"] = [rewritten_data["what_you_could_do"]]
+            else:
+                critical_missing.append("what_you_could_do_bullets")
+        
+        # Check if_not_try_this_instead (accept string or list)
+        if "if_not_try_this_instead" not in rewritten_data:
+            critical_missing.append("if_not_try_this_instead")
+        elif isinstance(rewritten_data["if_not_try_this_instead"], list):
+            # Convert list to string (take first item)
+            rewritten_data["if_not_try_this_instead"] = rewritten_data["if_not_try_this_instead"][0] if rewritten_data["if_not_try_this_instead"] else ""
+        
+        # Check but_if_you_do_play (must be list)
+        if "but_if_you_do_play" not in rewritten_data:
+            critical_missing.append("but_if_you_do_play")
+        elif not isinstance(rewritten_data["but_if_you_do_play"], list):
+            # Convert string to list
+            rewritten_data["but_if_you_do_play"] = [rewritten_data["but_if_you_do_play"]] if rewritten_data["but_if_you_do_play"] else []
+        
+        # Only reject if critical keys are missing (truly unusable)
+        if critical_missing:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"LLM missing required keys after post-processing: {missing_keys} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
-            # Raise ValueError - will be caught by build_final_copy and fall back to templates
-            raise ValueError(f"LLM response missing required keys after post-processing: {', '.join(missing_keys)}")
+            logger.error(f"LLM missing critical keys after mapping: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+            # Return None instead of raising - build_final_copy will fall back to templates
+            return None
         
         # Check for blocklisted phrases (after cleaning, so should be rare)
         blocklist = ["Play 18.", "Enjoy your round.", "Conditions are suitable today."]
@@ -4763,13 +4897,13 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
     except asyncio.TimeoutError:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.error(f"LLM request timed out{request_id_str} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-        # Don't raise - let build_final_copy handle the exception and fall back to templates
-        raise ValueError(f"LLM request timed out after {elapsed_ms}ms (timeout={llm_timeout_seconds}s)")
+        # Return None instead of raising - build_final_copy will fall back to templates
+        return None
     except Exception as e:
         elapsed_ms = int((time.time() - start_time) * 1000)
         logger.error(f"LLM API error{request_id_str}: {str(e)} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model}")
-        # Re-raise so build_final_copy can catch and fall back to templates
-        raise
+        # Return None instead of raising - build_final_copy will fall back to templates
+        return None
 
 
 async def rewrite_reasons_and_recommendations_llm(deterministic_data, request_id: str = None):
@@ -6197,11 +6331,12 @@ async def read_root():
     """
 
 
-async def render_assessment_results(course: str, handicap: int = None, golf_experience: str = "Regular", day: str = None, time_of_day: str = None, request_id: str = None, debug_mode: bool = False):
+async def render_assessment_results(course: str, handicap: int = None, golf_experience: str = "Regular", day: str = None, time_of_day: str = None, request_id: str = None, debug_mode: bool = False, force_templates: bool = False):
     """
     Shared function to calculate ratings and render assessment results.
     
     request_id: unique request identifier for logging
+    force_templates: if True, disable LLM and use templates only (for fail-open scenarios)
     """
     # Set safe defaults at the TOP (before any branching)
     # These ensure the function never fails due to unbound variables
@@ -6591,12 +6726,13 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             "copy_fields_present": [],
             "copy_payload_preview": {}
         }
-        llm_effective_enabled = bool(openai_client)  # LLM is enabled if client exists
+        # If force_templates is True, disable LLM completely (for fail-open scenarios)
+        llm_effective_enabled = bool(openai_client) and not force_templates  # LLM is enabled if client exists and not forced to templates
         
         # Build context for copy generation
         copy_context = {
             "llm_effective": llm_effective_enabled,
-            "openai_client": openai_client,
+            "openai_client": openai_client if not force_templates else None,  # Pass None if forcing templates
             "course_name": course,
             "handicap": handicap,
             "debug_mode": debug_mode
@@ -6682,9 +6818,15 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         "best_move": str(final_payload.get("best_move", ""))[:80],
         "recommendations": str(final_payload.get("recommendations", []))[:80]
     }
-    copy_debug["llm_attempted"] = llm_effective_enabled
-    copy_debug["llm_error_type"] = copy_errors.get("llm_error_type")
-    copy_debug["llm_error_message"] = copy_errors.get("llm_error_message")
+    # llm_attempted: True if LLM was actually attempted (enabled AND not force_templates AND we tried to call it)
+    # This is True if copy_source is "llm" OR if there's an error indicating we tried
+    copy_debug["llm_attempted"] = (
+        copy_source == "llm" or 
+        (llm_effective_enabled and copy_errors.get("llm_error_type") is not None)
+    )
+    # llm_error_type and llm_error_message: null if no error, otherwise the error details
+    copy_debug["llm_error_type"] = copy_errors.get("llm_error_type") if copy_errors.get("llm_error_type") else None
+    copy_debug["llm_error_message"] = copy_errors.get("llm_error_message") if copy_errors.get("llm_error_message") else None
     copy_debug["llm_raw_preview"] = copy_errors.get("llm_raw_preview", "")[:200] if copy_errors.get("llm_raw_preview") else None
     copy_debug["llm_duration_ms"] = copy_errors.get("duration_ms")
     copy_debug["llm_timeout_seconds"] = copy_errors.get("timeout_seconds")
@@ -6938,27 +7080,26 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     
     # "If not, do this instead" section
     # REQUIRED: This section MUST NEVER disappear
-    # Show if: tier is Challenging/Rough OR instead_activities list exists
-    should_show_instead_section = (
-        playability_tier in ["Challenging", "Rough"] or 
-        (instead_activities and len(instead_activities) > 0)
-    )
+    # Always show: derive from tier + time_of_day + daylight if instead_activities is missing
+    # Ensure instead_activities is always populated (should already be set by ensure_assessment_defaults)
+    if not instead_activities or len(instead_activities) == 0:
+        # Derive from tier + time_of_day + daylight if missing
+        if playability_tier == "Great":
+            instead_activities = ["If you want a lighter session: 9 holes or a quick short game session."]
+        elif playability_tier == "Decent":
+            instead_activities = ["If you are short on time: 9 holes or a range session."]
+        elif playability_tier == "Challenging":
+            instead_activities = ["If you want it easier today: range and short game. If you still play: 9 holes."]
+        else:  # Rough
+            instead_activities = ["Best alternative: range or simulator. Save the full round for another day."]
+    
+    # Card is ALWAYS shown (never disappears)
+    should_show_instead_section = True
     
     if should_show_instead_section:
-        # Ensure instead_activities exists
-        if not instead_activities or len(instead_activities) == 0:
-            # Fallback to defaults based on tier
-            if playability_tier == "Challenging":
-                instead_activities = ["9 holes", "Range session", "Short game practice"]
-            elif playability_tier == "Rough":
-                instead_activities = ["Range session", "Short game practice", "Putting green", "Simulator"]
-            else:
-                # For Great/Decent, provide optional alternatives
-                instead_activities = ["9 holes", "Range session"]
-        
         # Clean each activity before joining (template requirement: 1 bullet)
         # Final safety pass: remove any remaining dashes
-        instead_suggestions = clean_copy_text(instead_activities[0]) if instead_activities else "Range session or short game practice."
+        instead_suggestions = clean_copy_text(instead_activities[0]) if instead_activities else "If you are short on time: 9 holes or a range session."
         instead_suggestions = instead_suggestions.replace("—", ". ").replace("–", ". ")
         
         # For Challenging/Rough: show "And if you did decide to play..." tips
@@ -6990,28 +7131,36 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
                         </div>
             """
         else:
-            # For Great/Decent: softer optional wording
+            # For Great/Decent: use the suggestion text directly (already contains full sentence)
             # Final safety pass: remove any remaining dashes
             cleaned_suggestions = clean_copy_text(instead_suggestions).replace("—", ". ").replace("–", ". ")
-            optional_body = f"If you're short on time: {cleaned_suggestions}."
             
             instead_section_html = f"""
                         <div class="card card-instead">
                             <div class="card-title">If not, try this instead</div>
                             <div class="card-content">
-                                <div class="instead-suggestions">{optional_body}</div>
+                                <div class="instead-suggestions">{cleaned_suggestions}</div>
                             </div>
                         </div>
             """
     else:
-        # Fallback: should never happen, but ensure panel always shows
-        instead_activities = ["9 holes", "Range session"]
-        optional_body = f"If you're short on time: {clean_copy_text(', '.join(instead_activities))}."
+        # Fallback: should never happen since should_show_instead_section is always True, but ensure panel always shows
+        # Use tier-based defaults
+        if playability_tier == "Great":
+            fallback_text = "If you want a lighter session: 9 holes or a quick short game session."
+        elif playability_tier == "Decent":
+            fallback_text = "If you are short on time: 9 holes or a range session."
+        elif playability_tier == "Challenging":
+            fallback_text = "If you want it easier today: range and short game. If you still play: 9 holes."
+        else:  # Rough
+            fallback_text = "Best alternative: range or simulator. Save the full round for another day."
+        
+        cleaned_fallback = clean_copy_text(fallback_text).replace("—", ". ").replace("–", ". ")
         instead_section_html = f"""
                     <div class="card card-instead">
                         <div class="card-title">If not, try this instead</div>
                         <div class="card-content">
-                            <div class="instead-suggestions">{optional_body}</div>
+                            <div class="instead-suggestions">{cleaned_fallback}</div>
                         </div>
                     </div>
         """
@@ -7100,16 +7249,16 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         <div class="debug-info" style="margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 8px; font-size: 12px; font-family: monospace;">
             <strong>Copy Debug:</strong><br>
             copy_source: {copy_debug.get('copy_source', 'unknown')}<br>
+            llm_attempted: {copy_debug.get('llm_attempted', False)}<br>
+            llm_error_type: {copy_debug.get('llm_error_type') if copy_debug.get('llm_error_type') is not None else 'null'}<br>
+            llm_error_message: {copy_debug.get('llm_error_message') if copy_debug.get('llm_error_message') is not None else 'null'}<br>
             copy_builder_fn: {copy_debug.get('copy_builder_fn', 'unknown')}<br>
             tier: {playability_tier}<br>
             llm_effective: {llm_effective_enabled}<br>
-            llm_attempted: {copy_debug.get('llm_attempted', False)}<br>
             {f'llm_parse_stage: {copy_debug.get("llm_parse_stage")}<br>' if copy_debug.get('llm_parse_stage') else ''}
             {f'llm_duration_ms: {copy_debug.get("llm_duration_ms")}<br>' if copy_debug.get('llm_duration_ms') is not None else ''}
             {f'llm_timeout_seconds: {copy_debug.get("llm_timeout_seconds")}<br>' if copy_debug.get('llm_timeout_seconds') is not None else ''}
             {f'llm_model: {copy_debug.get("llm_model")}<br>' if copy_debug.get('llm_model') else ''}
-            {f'llm_error_type: {copy_debug.get("llm_error_type")}<br>' if copy_debug.get('llm_error_type') else ''}
-            {f'llm_error_message: {copy_debug.get("llm_error_message")}<br>' if copy_debug.get('llm_error_message') else ''}
             {f'llm_missing_keys: {copy_debug.get("llm_missing_keys")}<br>' if copy_debug.get('llm_missing_keys') else ''}
             {f'llm_raw_preview: {copy_debug.get("llm_raw_preview")}<br>' if copy_debug.get('llm_raw_preview') else ''}
             <br>
@@ -8226,13 +8375,100 @@ async def assess_get(
     # Log assessment start with debug info
     logger.info(f"ASSESS: request_id={request_id} llm_flag={llm_flag} has_key={has_openai_key} llm_effective={llm_effective}")
     
-    # Render results with error handling
+    # Render results with fail-open error handling
+    # First attempt: try with LLM enabled (if available)
     try:
-        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode)
+        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode, force_templates=False)
     except Exception as e:
-        logger.error(f"Error rendering assessment results: {str(e)}", exc_info=True)
-        # Return error page
-        return f"""
+        # Check if this is a hard failure (course not found, weather API failure, invalid input)
+        # These should show the error page
+        error_str = str(e).lower()
+        is_hard_failure = (
+            "course not found" in error_str or
+            "weather" in error_str and ("api" in error_str or "fetch" in error_str) or
+            "invalid" in error_str and ("date" in error_str or "time" in error_str or "input" in error_str) or
+            "not found" in error_str
+        )
+        
+        if is_hard_failure:
+            # Hard failure: show error page
+            logger.error(f"Hard failure rendering assessment results (request_id={request_id}): {str(e)}", exc_info=True)
+            return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error - Alba Labs</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                :root {{
+                    --alba-cream: #FFF7E0;
+                    --alba-yellow: #FBB924;
+                    --alba-orange: #F78222;
+                    --alba-red: #E23642;
+                    --alba-offblack: #2C2C2F;
+                    --alba-black: #000000;
+                    --alba-green: #4A9B5A;
+                }}
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                body {{
+                    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    background: var(--alba-offblack);
+                    color: var(--alba-cream);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 100vh;
+                    padding: 24px;
+                }}
+                .container {{
+                    max-width: 500px;
+                    width: 100%;
+                    text-align: center;
+                }}
+                .error-message {{
+                    font-size: 16px;
+                    line-height: 1.6;
+                    margin-bottom: 24px;
+                    color: var(--alba-cream);
+                }}
+                .back-link {{
+                    display: inline-block;
+                    color: var(--alba-yellow);
+                    text-decoration: none;
+                    font-weight: 500;
+                    font-size: 14px;
+                    transition: color 0.2s ease;
+                }}
+                .back-link:hover {{
+                    color: var(--alba-orange);
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error-message">We couldn't check playability for that selection. Try a different course or time.</div>
+                <a href="/" class="back-link">← Back to home</a>
+            </div>
+        </body>
+        </html>
+        """
+        else:
+            # Soft failure (copy/LLM issues): fail-open by retrying with templates only
+            logger.exception(f"ASSESS_FAIL_OPEN request_id={request_id} error={str(e)}")
+            try:
+                # Retry with LLM forcibly disabled (templates only)
+                return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode, force_templates=True)
+            except Exception as retry_exception:
+                # If retry also fails, this is likely a hard failure - show error page
+                logger.error(f"Retry with templates also failed (request_id={request_id}): {str(retry_exception)}", exc_info=True)
+                return f"""
         <!DOCTYPE html>
         <html>
         <head>
