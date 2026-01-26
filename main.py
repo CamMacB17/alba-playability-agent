@@ -1426,46 +1426,105 @@ def ensure_assessment_defaults(result: Dict[str, Any]) -> Dict[str, Any]:
     # Cap at 4 items
     result["why_bullets"] = result["why_bullets"][:4]
     
-    # Ensure what_you_could_do_bullets exists (list, len 1-3) - use friendly pro-shop tone
+    # Ensure what_you_could_do_bullets exists (list, len 2-3) - use friendly pro-shop tone with trade-offs
     if "what_you_could_do_bullets" not in result or not isinstance(result["what_you_could_do_bullets"], list):
         if tier in ["Great", "Decent"]:
-            result["what_you_could_do_bullets"] = ["18 holes looks good today—conditions are in your favour.", "Consider booking early or late to avoid peak times if the course is busy."]
+            result["what_you_could_do_bullets"] = [
+                "18 holes looks good today—conditions are in your favour and you'll get more out of a full round than rushing through.",
+                "Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting."
+            ]
         else:
-            result["what_you_could_do_bullets"] = ["9 holes might be more manageable in these conditions.", "A focused range session could help you work on technique without the pressure."]
-    # Ensure at least 1 item
-    if len(result["what_you_could_do_bullets"]) < 1:
+            result["what_you_could_do_bullets"] = [
+                "9 holes might be more manageable—you'll get better value from a shorter round than fighting through 18 in these conditions.",
+                "A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather."
+            ]
+    # Ensure at least 2 items (template fallback requirement)
+    if len(result["what_you_could_do_bullets"]) < 2:
         if tier in ["Great", "Decent"]:
-            result["what_you_could_do_bullets"] = ["18 holes looks good today—conditions are in your favour.", "Consider booking early or late to avoid peak times if the course is busy."]
+            if len(result["what_you_could_do_bullets"]) == 0:
+                result["what_you_could_do_bullets"] = [
+                    "18 holes looks good today—conditions are in your favour and you'll get more out of a full round than rushing through.",
+                    "Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting."
+                ]
+            else:
+                result["what_you_could_do_bullets"].append("Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting.")
         else:
-            result["what_you_could_do_bullets"] = ["9 holes might be more manageable in these conditions.", "A focused range session could help you work on technique without the pressure."]
+            if len(result["what_you_could_do_bullets"]) == 0:
+                result["what_you_could_do_bullets"] = [
+                    "9 holes might be more manageable—you'll get better value from a shorter round than fighting through 18 in these conditions.",
+                    "A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather."
+                ]
+            else:
+                result["what_you_could_do_bullets"].append("A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather.")
     # Cap at 3 items
     result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:3]
     
-    # Ensure instead_activities exists (list, len 2-5) for Challenging/Rough, optional for Decent
+    # Ensure instead_activities exists (list, len 1-2) - always present, friendly bullets with trade-offs
     if "instead_activities" not in result or not isinstance(result["instead_activities"], list):
-        if tier in ["Challenging", "Rough"]:
-            result["instead_activities"] = ["Range session", "Short game practice", "Putting green"]
+        if tier == "Challenging":
+            result["instead_activities"] = [
+                "9 holes—shorter round lets you focus on technique without the pressure",
+                "Range session or short game practice—you'll get more value from focused work than fighting the elements"
+            ]
+        elif tier == "Rough":
+            result["instead_activities"] = [
+                "Range session or short game practice—conditions are tough, so practice facilities offer better value today",
+                "Putting green or simulator—indoor options let you work on your game without battling the weather"
+            ]
         elif tier == "Decent":
-            result["instead_activities"] = ["9 holes", "Range session"]
+            result["instead_activities"] = [
+                "9 holes—if you're short on time, a shorter round still gives you quality practice",
+                "Range session—focused work on technique can be more valuable than rushing through 18"
+            ]
+        else:  # Great
+            result["instead_activities"] = [
+                "9 holes—if you're short on time, a shorter round still gives you quality practice",
+                "Range session—focused work on technique can be more valuable than rushing through 18"
+            ]
+    # Ensure at least 1 item (always present requirement)
+    if len(result["instead_activities"]) < 1:
+        if tier in ["Challenging", "Rough"]:
+            result["instead_activities"] = ["Range session or short game practice—you'll get more value from focused work than fighting the elements"]
         else:
-            result["instead_activities"] = []
-    # Ensure proper length for Challenging/Rough
-    if tier in ["Challenging", "Rough"]:
-        while len(result["instead_activities"]) < 2:
-            result["instead_activities"].append("Range session")
-        result["instead_activities"] = result["instead_activities"][:5]
+            result["instead_activities"] = ["9 holes—if you're short on time, a shorter round still gives you quality practice"]
     
     # Ensure if_you_play_tips exists (list, len 2-4) for Challenging/Rough, optional otherwise
     if "if_you_play_tips" not in result or not isinstance(result["if_you_play_tips"], list):
+        if tier == "Challenging":
+            result["if_you_play_tips"] = [
+                "Pack waterproofs and a spare glove—conditions can change quickly and staying dry keeps you comfortable",
+                "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
+                "Adjust expectations and focus on technique—today's about building good habits, not scoring low"
+            ]
+        elif tier == "Rough":
+            result["if_you_play_tips"] = [
+                "Waterproofs and spare glove are essential—you'll need them and staying dry makes everything easier",
+                "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
+                "Flight it down in the wind—keep the ball low to avoid losing control, and adjust expectations—today's about survival, not scoring"
+            ]
+        elif tier == "Decent":
+            result["if_you_play_tips"] = [
+                "Keep an eye on the weather—conditions are decent but can change, so be prepared",
+                "Pace yourself—decent conditions mean you can play well, but don't rush and enjoy the round"
+            ]
+        else:  # Great
+            result["if_you_play_tips"] = [
+                "Conditions are ideal—trust your swing and enjoy the round",
+                "Take advantage of the good conditions—this is a great day to work on scoring and course management"
+            ]
+    # Ensure at least 2 items (always present requirement)
+    if len(result["if_you_play_tips"]) < 2:
         if tier in ["Challenging", "Rough"]:
-            result["if_you_play_tips"] = ["Take one more club and swing smooth", "Flight it down in the wind", "Waterproofs and spare glove"]
+            while len(result["if_you_play_tips"]) < 2:
+                result["if_you_play_tips"].append("Adjust expectations and focus on technique—today's about building good habits, not scoring low")
         else:
-            result["if_you_play_tips"] = []
-    # Ensure proper length for Challenging/Rough
-    if tier in ["Challenging", "Rough"]:
-        while len(result["if_you_play_tips"]) < 2:
-            result["if_you_play_tips"].append("Adjust expectations and focus on technique")
-        result["if_you_play_tips"] = result["if_you_play_tips"][:4]
+            if len(result["if_you_play_tips"]) == 0:
+                result["if_you_play_tips"] = [
+                    "Keep an eye on the weather—conditions can change, so be prepared",
+                    "Pace yourself and enjoy the round"
+                ]
+            else:
+                result["if_you_play_tips"].append("Pace yourself and enjoy the round")
     
     # Ensure trade_off_sentence exists (empty string for deterministic, LLM will populate)
     if "trade_off_sentence" not in result:
@@ -1651,23 +1710,23 @@ def generate_base_recommendation(playability_tier: str) -> Dict[str, str]:
     """
     if playability_tier == "Great":
         return {
-            "action": "Play 18",
-            "reason": "Conditions are ideal for a full round"
+            "action": "18 holes",
+            "reason": "conditions are ideal for a full round—you'll get more out of playing 18 than rushing through"
         }
     elif playability_tier == "Decent":
         return {
-            "action": "Play 18",
-            "reason": "Conditions are good for a full round"
+            "action": "18 holes",
+            "reason": "conditions are good for a full round—weather and ground are manageable, so you can play well"
         }
     elif playability_tier == "Challenging":
         return {
-            "action": "Play 9 or range session",
-            "reason": "Conditions add challenge, so a shorter round or practice works better"
+            "action": "9 holes or range session",
+            "reason": "conditions add challenge, so a shorter round or practice works better—you'll get more value from focused work than fighting the elements"
         }
     else:  # Rough
         return {
             "action": "Range and short game (or simulator)",
-            "reason": "Conditions are tough, so practice facilities offer better value today"
+            "reason": "conditions are tough, so practice facilities offer better value today—you'll make more progress indoors than battling the weather"
         }
 
 
@@ -1717,8 +1776,8 @@ def personalize_recommendation(
     # Rule 5: Daylight override - if daylight suggests 9 holes, override "Play 18"
     if recommended_holes == 9 and playability_tier in ["Great", "Decent"]:
         recommendations.append({
-            "action": "Play 9",
-            "reason": "Daylight is tight, so 9 holes ensures you finish comfortably—you can always add more if time allows"
+            "action": "9 holes",
+            "reason": "daylight is tight, so 9 holes ensures you finish comfortably—you can always add more if time allows"
         })
         # Still include base recommendation as alternative
         recommendations.append({
@@ -1731,12 +1790,12 @@ def personalize_recommendation(
     if playability_tier == "Challenging" and confidence == "Beginner":
         recommendations.append({
             "action": "Range session or short game practice",
-            "reason": "These conditions work better for practice when you're building consistency—you'll get more value from focused work than fighting the elements"
+            "reason": "these conditions work better for practice when you're building consistency—you'll get more value from focused work than fighting the elements"
         })
         # Also offer adjusted play option
         recommendations.append({
             "action": "If you do play, plan for 9 holes with adjusted expectations",
-            "reason": "A shorter round lets you focus on technique without the pressure of scoring in challenging conditions"
+            "reason": "a shorter round lets you focus on technique without the pressure of scoring in challenging conditions"
         })
         return recommendations
     
@@ -5548,75 +5607,118 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     )
     
     # Generate what_you_could_do_bullets from structured recommendations (deterministic)
+    # Template fallback: friendly pro-shop tone with trade-offs, 2-3 bullets
     what_you_could_do_bullets = []
     seen_actions = set()
     
     if recommendations:
         for rec in recommendations:
             action = rec.get("action", "")
+            reason = rec.get("reason", "")
             if not action:
                 continue
             
-            # Transform generic actions to friendly pro-shop tone bullets
-            # Format bullet: friendly, actionable, not robotic commands
+            # Combine action + reason into friendly bullet with trade-offs
+            # Format: "[Action]—[reason explaining trade-off]"
             action_clean = action.strip()
+            reason_clean = reason.strip()
             
-            # Transform generic "Play 18" / "Play 9" to friendly alternatives
+            # Transform generic actions to friendly alternatives
             if action_clean.lower() == "play 18":
-                action_clean = "18 holes looks good today—conditions are in your favour"
+                action_clean = "18 holes"
             elif action_clean.lower() == "play 9":
-                action_clean = "9 holes might be more manageable in these conditions"
+                action_clean = "9 holes"
             elif "play 18" in action_clean.lower():
                 action_clean = action_clean.replace("Play 18", "18 holes").replace("play 18", "18 holes")
             
-            # Add period if not present
-            if not action_clean.endswith('.'):
-                action_clean += "."
+            # Combine action and reason into friendly bullet
+            if reason_clean:
+                # Use em dash for better readability
+                bullet = f"{action_clean}—{reason_clean.lower()}"
+            else:
+                bullet = action_clean
+            
+            # Ensure period at end
+            if not bullet.endswith('.'):
+                bullet += "."
             
             # Deduplicate by action
             action_normalized = action.lower().strip()
             if action_normalized not in seen_actions:
                 seen_actions.add(action_normalized)
-                what_you_could_do_bullets.append(action_clean)
-                logger.debug(f"COPY_BUILDER: Added bullet from recommendation action='{action}' -> bullet='{action_clean}'")
+                what_you_could_do_bullets.append(bullet)
+                logger.debug(f"COPY_BUILDER: Added bullet from recommendation action='{action}' reason='{reason}' -> bullet='{bullet}'")
             
-            # Cap bullets based on golf_experience
-            max_what_bullets = 6 if golf_experience == "Beginner" else (3 if golf_experience == "Confident" else 4)
-            if len(what_you_could_do_bullets) >= max_what_bullets:
+            # Cap bullets: 2-3 for template fallback
+            if len(what_you_could_do_bullets) >= 3:
                 break
     
-    # Ensure at least 1 item - use friendly pro-shop tone (not generic "Enjoy your round")
-    if len(what_you_could_do_bullets) < 1:
+    # Template fallback: ensure 2-3 friendly bullets with trade-offs
+    if len(what_you_could_do_bullets) < 2:
         if playability_tier in ["Great", "Decent"]:
-            what_you_could_do_bullets.append("18 holes looks good today—conditions are in your favour.")
-            what_you_could_do_bullets.append("Consider booking early or late to avoid peak times if the course is busy.")
-        else:
-            what_you_could_do_bullets.append("9 holes might be more manageable in these conditions.")
-            what_you_could_do_bullets.append("A focused range session could help you work on technique without the pressure.")
+            if len(what_you_could_do_bullets) == 0:
+                what_you_could_do_bullets.append("18 holes looks good today—conditions are in your favour and you'll get more out of a full round than rushing through.")
+                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting.")
+            elif len(what_you_could_do_bullets) == 1:
+                what_you_could_do_bullets.append("Consider booking early or late to avoid peak times—quieter slots help you maintain rhythm and avoid waiting.")
+        else:  # Challenging or Rough
+            if len(what_you_could_do_bullets) == 0:
+                what_you_could_do_bullets.append("9 holes might be more manageable—you'll get better value from a shorter round than fighting through 18 in these conditions.")
+                what_you_could_do_bullets.append("A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather.")
+            elif len(what_you_could_do_bullets) == 1:
+                what_you_could_do_bullets.append("A focused range session could help you work on technique—you'll make more progress without the pressure of scoring in challenging weather.")
     
     # Cap at 3 items
     what_you_could_do_bullets = what_you_could_do_bullets[:3]
     
     # Generate instead_activities (deterministic)
-    # Always populate to ensure panel never disappears
+    # Always present, 1-2 friendly bullets with trade-offs
     instead_activities = []
     if playability_tier == "Challenging":
-        instead_activities = ["9 holes", "Range session", "Short game practice"]
+        instead_activities = [
+            "9 holes—shorter round lets you focus on technique without the pressure",
+            "Range session or short game practice—you'll get more value from focused work than fighting the elements"
+        ]
     elif playability_tier == "Rough":
-        instead_activities = ["Range session", "Short game practice", "Putting green", "Simulator"]
+        instead_activities = [
+            "Range session or short game practice—conditions are tough, so practice facilities offer better value today",
+            "Putting green or simulator—indoor options let you work on your game without battling the weather"
+        ]
     elif playability_tier == "Decent":
-        instead_activities = ["9 holes", "Range session"]  # Optional for Decent
+        instead_activities = [
+            "9 holes—if you're short on time, a shorter round still gives you quality practice",
+            "Range session—focused work on technique can be more valuable than rushing through 18"
+        ]
     elif playability_tier == "Great":
-        instead_activities = ["9 holes", "Range session"]  # Optional for Great
+        instead_activities = [
+            "9 holes—if you're short on time, a shorter round still gives you quality practice",
+            "Range session—focused work on technique can be more valuable than rushing through 18"
+        ]
     
     # Generate if_you_play_tips (deterministic)
+    # Always present, 2-3 practical tips with context
     if_you_play_tips = []
-    if playability_tier in ["Challenging", "Rough"]:
+    if playability_tier == "Challenging":
         if_you_play_tips = [
-            "Waterproofs and spare glove",
-            "Take one more club and swing smooth",
-            "Flight it down in the wind",
-            "Adjust expectations and focus on technique"
+            "Pack waterproofs and a spare glove—conditions can change quickly and staying dry keeps you comfortable",
+            "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
+            "Adjust expectations and focus on technique—today's about building good habits, not scoring low"
+        ]
+    elif playability_tier == "Rough":
+        if_you_play_tips = [
+            "Waterproofs and spare glove are essential—you'll need them and staying dry makes everything easier",
+            "Take one more club and swing smooth—the conditions will cost you distance, so club up and trust your swing",
+            "Flight it down in the wind—keep the ball low to avoid losing control, and adjust expectations—today's about survival, not scoring"
+        ]
+    elif playability_tier == "Decent":
+        if_you_play_tips = [
+            "Keep an eye on the weather—conditions are decent but can change, so be prepared",
+            "Pace yourself—decent conditions mean you can play well, but don't rush and enjoy the round"
+        ]
+    elif playability_tier == "Great":
+        if_you_play_tips = [
+            "Conditions are ideal—trust your swing and enjoy the round",
+            "Take advantage of the good conditions—this is a great day to work on scoring and course management"
         ]
     
     # Build deterministic payload dict with ALL sections
