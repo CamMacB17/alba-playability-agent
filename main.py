@@ -944,6 +944,9 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                 else:
                     with open(courses_path, "r", encoding="utf-8") as f:
                         courses = json.load(f)
+                        # Normalize dict to list if needed
+                        if isinstance(courses, dict):
+                            courses = list(courses.values())
                 
                 # Validate that courses is a list
                 if isinstance(courses, list):
