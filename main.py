@@ -1821,10 +1821,9 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
         "Conditions are suitable today."
     ]
     
-    # Check all text fields for blocklist phrases
+    # Check all Format A text fields for blocklist phrases
     text_fields_to_check = [
-        ("banner_summary_line", llm_output.get("banner_summary_line", llm_output.get("headline", ""))),
-        ("best_move", llm_output.get("best_move", "")),
+        ("banner_summary_line", llm_output.get("banner_summary_line", "")),
     ]
     
     # Check why_bullets
@@ -1833,21 +1832,23 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
         for i, bullet in enumerate(why_bullets):
             text_fields_to_check.append((f"why_bullets[{i}]", bullet))
     
-    # Check what_you_could_do (new key name)
-    what_bullets = llm_output.get("what_you_could_do", llm_output.get("what_you_could_do_bullets", []))
+    # Check what_you_could_do_bullets (Format A only)
+    what_bullets = llm_output.get("what_you_could_do_bullets", [])
     if isinstance(what_bullets, list):
         for i, bullet in enumerate(what_bullets):
-            text_fields_to_check.append((f"what_you_could_do[{i}]", bullet))
+            text_fields_to_check.append((f"what_you_could_do_bullets[{i}]", bullet))
     
-    # Check if_not_try_this_instead
-    if "if_not_try_this_instead" in llm_output:
-        text_fields_to_check.append(("if_not_try_this_instead", llm_output["if_not_try_this_instead"]))
+    # Check instead_activities (Format A)
+    instead_activities = llm_output.get("instead_activities", [])
+    if isinstance(instead_activities, list):
+        for i, bullet in enumerate(instead_activities):
+            text_fields_to_check.append((f"instead_activities[{i}]", bullet))
     
-    # Check but_if_you_do_play
-    but_play = llm_output.get("but_if_you_do_play", [])
-    if isinstance(but_play, list):
-        for i, bullet in enumerate(but_play):
-            text_fields_to_check.append((f"but_if_you_do_play[{i}]", bullet))
+    # Check if_you_play_tips (Format A)
+    if_you_play_tips = llm_output.get("if_you_play_tips", [])
+    if isinstance(if_you_play_tips, list):
+        for i, bullet in enumerate(if_you_play_tips):
+            text_fields_to_check.append((f"if_you_play_tips[{i}]", bullet))
     
     # Check all text fields against blocklist
     for field_name, field_value in text_fields_to_check:
@@ -1856,11 +1857,11 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
                 if phrase.lower() in field_value.lower():
                     return False, f"Blocklist violation: '{phrase}' found in {field_name}"
     
-    # Check all required keys exist (after post-processing, should have all keys)
-    required_keys = ["headline", "best_move", "banner_summary_line", "why_bullets", "what_you_could_do", "if_not_try_this_instead", "but_if_you_do_play"]
+    # Check all Format A required keys exist
+    required_keys = ["banner_summary_line", "why_bullets", "what_you_could_do_bullets", "instead_activities"]
     for key in required_keys:
         if key not in llm_output:
-            return False, f"Missing required key: {key}"
+            return False, f"Missing required Format A key: {key}"
     
     # Validate tier matches exactly (with resilient fallbacks)
     expected_tier = deterministic_payload.get("playability_tier") or deterministic_payload.get("tier") or "Decent"
@@ -1868,19 +1869,10 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
     if actual_tier and actual_tier != expected_tier:
         return False, f"Tier mismatch: expected '{expected_tier}', got '{actual_tier}'"
     
-    # Validate best_move matches exactly
-    if llm_output["best_move"] != deterministic_payload["best_move"]:
-        return False, f"best_move mismatch: expected '{deterministic_payload['best_move']}', got '{llm_output['best_move']}'"
-    
-    # Validate banner_summary is a non-empty string and not flat/generic
-    if not isinstance(llm_output["banner_summary"], str) or not llm_output["banner_summary"].strip():
-        return False, "banner_summary must be a non-empty string"
-    
     # Check banner_summary_line is useful and specific (not flat)
-    banner_key = "banner_summary_line" if "banner_summary_line" in llm_output else ("headline" if "headline" in llm_output else "banner_summary")
-    if banner_key not in llm_output:
-        return False, "Missing banner_summary_line, headline, or banner_summary"
-    banner_lower = llm_output[banner_key].lower()
+    if "banner_summary_line" not in llm_output or not llm_output["banner_summary_line"] or not isinstance(llm_output["banner_summary_line"], str):
+        return False, "Missing or invalid banner_summary_line"
+    banner_lower = llm_output["banner_summary_line"].lower()
     flat_phrases = ["conditions are", "weather is", "it's", "today is"]
     if all(phrase not in banner_lower for phrase in ["will", "cost", "kill", "affect", "likely", "tends", "probably"]):
         # Check if it's too generic
@@ -1898,49 +1890,47 @@ def validate_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[
         if not isinstance(bullet, str) or not bullet.strip():
             return False, f"why_bullets[{i}] is not a non-empty string"
     
-    # Validate what_you_could_do: MUST have 2-3 items based on tier (2 for Great/Decent, 3 for Challenging/Rough)
-    what_key = "what_you_could_do" if "what_you_could_do" in llm_output else "what_you_could_do_bullets"
-    if what_key not in llm_output:
-        return False, "Missing what_you_could_do"
-    if not isinstance(llm_output[what_key], list):
-        return False, f"{what_key} is not a list"
+    # Validate what_you_could_do_bullets: MUST have 2-3 items based on tier (2 for Great/Decent, 3 for Challenging/Rough)
+    if "what_you_could_do_bullets" not in llm_output:
+        return False, "Missing what_you_could_do_bullets"
+    if not isinstance(llm_output["what_you_could_do_bullets"], list):
+        return False, "what_you_could_do_bullets is not a list"
     tier = deterministic_payload.get("playability_tier", "Decent")
     max_what_bullets = 3 if tier in ["Challenging", "Rough"] else 2
-    min_what_bullets = 2
-    if len(llm_output[what_key]) < min_what_bullets or len(llm_output[what_key]) > max_what_bullets:
-        return False, f"{what_key} must have {min_what_bullets}-{max_what_bullets} items for {tier} tier, got {len(llm_output[what_key])}"
-    for i, bullet in enumerate(llm_output[what_key]):
+    min_what_bullets = 1  # At least 1 item required
+    if len(llm_output["what_you_could_do_bullets"]) < min_what_bullets or len(llm_output["what_you_could_do_bullets"]) > max_what_bullets:
+        return False, f"what_you_could_do_bullets must have {min_what_bullets}-{max_what_bullets} items for {tier} tier, got {len(llm_output['what_you_could_do_bullets'])}"
+    for i, bullet in enumerate(llm_output["what_you_could_do_bullets"]):
         if not isinstance(bullet, str) or not bullet.strip():
-            return False, f"{what_key}[{i}] is not a non-empty string"
+            return False, f"what_you_could_do_bullets[{i}] is not a non-empty string"
         # Check word limit (18 words max)
         words = bullet.split()
         if len(words) > 18:
-            return False, f"{what_key}[{i}] exceeds 18 word limit, got {len(words)} words"
+            return False, f"what_you_could_do_bullets[{i}] exceeds 18 word limit, got {len(words)} words"
     
-    # Validate if_not_try_this_instead: MUST be present and non-empty string
-    if "if_not_try_this_instead" not in llm_output:
-        # Check alternative key names
-        if "instead_activities" not in llm_output:
-            return False, "Missing if_not_try_this_instead"
-        # Convert list to string if needed
-        if isinstance(llm_output["instead_activities"], list) and len(llm_output["instead_activities"]) > 0:
-            llm_output["if_not_try_this_instead"] = llm_output["instead_activities"][0]
-        else:
-            return False, "if_not_try_this_instead is not a non-empty string"
-    if not isinstance(llm_output["if_not_try_this_instead"], str) or not llm_output["if_not_try_this_instead"].strip():
-        return False, "if_not_try_this_instead is not a non-empty string"
-    
-    # Validate but_if_you_do_play: MUST be present and non-empty list
-    but_key = "but_if_you_do_play" if "but_if_you_do_play" in llm_output else ("tips_if_you_play_bullets" if "tips_if_you_play_bullets" in llm_output else "if_you_play_tips")
-    if but_key not in llm_output:
-        return False, "Missing but_if_you_do_play"
-    if not isinstance(llm_output[but_key], list):
-        return False, f"{but_key} is not a list"
-    if len(llm_output[but_key]) == 0:
-        return False, f"{but_key} must have at least 1 item"
-    for i, bullet in enumerate(llm_output[but_key]):
+    # Validate instead_activities: MUST be present and non-empty list
+    if "instead_activities" not in llm_output:
+        return False, "Missing instead_activities"
+    if not isinstance(llm_output["instead_activities"], list):
+        return False, "instead_activities is not a list"
+    if len(llm_output["instead_activities"]) == 0:
+        return False, "instead_activities must have at least 1 item"
+    for i, bullet in enumerate(llm_output["instead_activities"]):
         if not isinstance(bullet, str) or not bullet.strip():
-            return False, f"{but_key}[{i}] is not a non-empty string"
+            return False, f"instead_activities[{i}] is not a non-empty string"
+    
+    # Validate if_you_play_tips: MUST be present and non-empty list for Challenging/Rough
+    tier = deterministic_payload.get("playability_tier", "Decent")
+    if tier in ["Challenging", "Rough"]:
+        if "if_you_play_tips" not in llm_output:
+            return False, "Missing if_you_play_tips (required for Challenging/Rough)"
+        if not isinstance(llm_output["if_you_play_tips"], list):
+            return False, "if_you_play_tips is not a list"
+        if len(llm_output["if_you_play_tips"]) == 0:
+            return False, "if_you_play_tips must have at least 1 item"
+        for i, bullet in enumerate(llm_output["if_you_play_tips"]):
+            if not isinstance(bullet, str) or not bullet.strip():
+                return False, f"if_you_play_tips[{i}] is not a non-empty string"
     
     # Validate list lengths for other lists (allow +/-1 but never empty)
     list_checks = []
@@ -4057,13 +4047,12 @@ def parse_llm_payload(raw: str) -> Optional[Dict[str, Any]]:
 
 def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Post-process LLM output to:
-    1. Map equivalent keys (e.g., "banner" -> "banner_summary_line")
-    2. Fill missing keys with safe defaults based on tier + context
-    3. Enforce style rules (no dashes, no repetition, short sentences)
-    4. Ensure all required keys are present
+    Post-process LLM output (Format A only):
+    1. Fill missing keys with safe defaults based on tier + context
+    2. Enforce style rules (no dashes, no repetition, short sentences)
+    3. Ensure all required keys are present
     
-    Returns: Normalized dict with all required keys
+    Returns: Normalized dict with Format A keys only
     """
     import re
     
@@ -4072,148 +4061,109 @@ def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: D
     
     result = {}
     
-    # Key mapping: map equivalent keys to standard names
-    key_mappings = {
-        # Headline variations
-        "headline": "headline",
-        "banner_summary": "banner_summary_line",
-        "banner_summary_line": "banner_summary_line",
-        "banner": "banner_summary_line",
-        
-        # Best move (should already be correct)
-        "best_move": "best_move",
-        
-        # Why bullets
-        "why_bullets": "why_bullets",
-        "why": "why_bullets",
-        
-        # What you could do variations
-        "what_you_could_do": "what_you_could_do",
-        "what_you_could_do_bullets": "what_you_could_do",
-        "what_you_could_do_bullet": "what_you_could_do",
-        
-        # Instead activities variations
-        "if_not_try_this_instead": "if_not_try_this_instead",
-        "if_not_try_this_instead_bullets": "if_not_try_this_instead",
-        "instead_activities": "if_not_try_this_instead",
-        "alternatives": "if_not_try_this_instead",
-        
-        # But if you do play variations
-        "but_if_you_do_play": "but_if_you_do_play",
-        "tips_if_you_play_bullets": "but_if_you_do_play",
-        "if_you_play_tips": "but_if_you_do_play",
-        "tips": "but_if_you_do_play",
-    }
-    
-    # Apply key mappings
-    for old_key, new_key in key_mappings.items():
-        if old_key in llm_output:
-            value = llm_output[old_key]
-            # Handle list vs string for "if_not_try_this_instead"
-            if new_key == "if_not_try_this_instead" and isinstance(value, list):
-                # Convert list to single string (take first item or join)
-                value = value[0] if value else ""
-            # Handle string vs list for "but_if_you_do_play"
-            elif new_key == "but_if_you_do_play" and isinstance(value, str):
-                # Convert string to list
-                value = [value] if value else []
-            result[new_key] = value
+    # Copy Format A keys directly (no Format B mapping)
+    if "banner_summary_line" in llm_output:
+        result["banner_summary_line"] = llm_output["banner_summary_line"]
+    if "why_bullets" in llm_output:
+        result["why_bullets"] = llm_output["why_bullets"]
+    if "what_you_could_do_bullets" in llm_output:
+        result["what_you_could_do_bullets"] = llm_output["what_you_could_do_bullets"]
+    if "instead_activities" in llm_output:
+        result["instead_activities"] = llm_output["instead_activities"]
+    if "if_you_play_tips" in llm_output:
+        result["if_you_play_tips"] = llm_output["if_you_play_tips"]
     
     # Extract context for defaults
     playability_tier = deterministic_payload.get("playability_tier", "Decent")
-    best_move = deterministic_payload.get("best_move", "18 holes")
     why_bullets_det = deterministic_payload.get("why_bullets", [])
     what_you_could_do_det = deterministic_payload.get("what_you_could_do_bullets", [])
     instead_activities_det = deterministic_payload.get("instead_activities", [])
     if_you_play_tips_det = deterministic_payload.get("if_you_play_tips", [])
     
-    # Fill missing keys with safe defaults
-    if "headline" not in result or not result.get("headline"):
-        if "banner_summary_line" in result and result["banner_summary_line"]:
-            result["headline"] = result["banner_summary_line"]
-        else:
-            # Generate default based on tier
-            if playability_tier == "Great":
-                result["headline"] = "Conditions are ideal for golf today. Weather and ground are in your favour."
-            elif playability_tier == "Decent":
-                result["headline"] = "Conditions are decent for golf today. Weather and ground are manageable."
-            elif playability_tier == "Challenging":
-                result["headline"] = "Conditions are challenging but playable. Weather and ground will test your game."
-            else:  # Rough
-                result["headline"] = "Conditions are rough today. Weather and ground will make scoring difficult."
-    
+    # Fill missing Format A keys with safe defaults (no Format B mapping)
     if "banner_summary_line" not in result or not result.get("banner_summary_line"):
-        result["banner_summary_line"] = result.get("headline", "")
+        # Generate default based on tier
+        if playability_tier == "Great":
+            result["banner_summary_line"] = "Conditions are ideal for golf today. Weather and ground are in your favour."
+        elif playability_tier == "Decent":
+            result["banner_summary_line"] = "Conditions are decent for golf today. Weather and ground are manageable."
+        elif playability_tier == "Challenging":
+            result["banner_summary_line"] = "Conditions are challenging but playable. Weather and ground will test your game."
+        else:  # Rough
+            result["banner_summary_line"] = "Conditions are rough today. Weather and ground will make scoring difficult."
     
-    if "best_move" not in result or not result.get("best_move"):
-        result["best_move"] = best_move
-    
-    if "why_bullets" not in result or not isinstance(result.get("why_bullets"), list) or len(result.get("why_bullets", [])) < 3:
+    if "why_bullets" not in result or not isinstance(result.get("why_bullets"), list) or len(result.get("why_bullets", [])) < 2:
         why_bullets_result = result.get("why_bullets", [])
         if not isinstance(why_bullets_result, list):
             why_bullets_result = []
-        # Fill up to 3 items from deterministic fallback
-        while len(why_bullets_result) < 3 and len(why_bullets_det) > len(why_bullets_result):
+        # Fill up to 2 items from deterministic fallback
+        while len(why_bullets_result) < 2 and len(why_bullets_det) > len(why_bullets_result):
             why_bullets_result.append(why_bullets_det[len(why_bullets_result)])
         # If still short, add generic defaults
-        while len(why_bullets_result) < 3:
+        while len(why_bullets_result) < 2:
             if playability_tier == "Great":
                 why_bullets_result.append("Weather conditions are ideal for golf today.")
             elif playability_tier == "Decent":
                 why_bullets_result.append("Weather and ground conditions are manageable.")
             else:
                 why_bullets_result.append("Conditions are challenging but playable.")
-        result["why_bullets"] = why_bullets_result[:3]
+        result["why_bullets"] = why_bullets_result
     
     # Determine max bullets based on tier
     max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
     
-    if "what_you_could_do" not in result or not isinstance(result.get("what_you_could_do"), list) or len(result.get("what_you_could_do", [])) < 2:
-        what_result = result.get("what_you_could_do", [])
+    if "what_you_could_do_bullets" not in result or not isinstance(result.get("what_you_could_do_bullets"), list) or len(result.get("what_you_could_do_bullets", [])) < 1:
+        what_result = result.get("what_you_could_do_bullets", [])
         if not isinstance(what_result, list):
             what_result = []
-        # Fill up to 2 items from deterministic fallback
-        while len(what_result) < 2 and len(what_you_could_do_det) > len(what_result):
+        # Fill up to 1 item from deterministic fallback
+        while len(what_result) < 1 and len(what_you_could_do_det) > len(what_result):
             what_result.append(what_you_could_do_det[len(what_result)])
         # If still short, add generic defaults
-        while len(what_result) < 2:
+        while len(what_result) < 1:
             if playability_tier in ["Great", "Decent"]:
                 what_result.append("Book early morning slots for better pace and smoother rounds.")
             else:
                 what_result.append("Book 9 holes to avoid fighting through tough conditions.")
-        # For Challenging/Rough, add third bullet if needed
+        # For Challenging/Rough, add more bullets if needed
         if playability_tier in ["Challenging", "Rough"] and len(what_result) < 3:
-            what_result.append("Range session lets you work on technique without pressure.")
-        result["what_you_could_do"] = what_result[:max_what_bullets]
+            while len(what_result) < 3 and len(what_you_could_do_det) > len(what_result):
+                what_result.append(what_you_could_do_det[len(what_result)])
+            if len(what_result) < 3:
+                what_result.append("Range session lets you work on technique without pressure.")
+        result["what_you_could_do_bullets"] = what_result[:max_what_bullets]
     
-    if "if_not_try_this_instead" not in result or not result.get("if_not_try_this_instead"):
+    if "instead_activities" not in result or not isinstance(result.get("instead_activities"), list) or len(result.get("instead_activities", [])) < 1:
+        instead_result = result.get("instead_activities", [])
+        if not isinstance(instead_result, list):
+            instead_result = []
+        # Fill from deterministic fallback
         if instead_activities_det and len(instead_activities_det) > 0:
-            result["if_not_try_this_instead"] = instead_activities_det[0]
+            instead_result = instead_activities_det[:1]
         else:
             # Tier-based defaults to ensure always non-empty
             if playability_tier == "Great":
-                result["if_not_try_this_instead"] = "If you want a lighter session: 9 holes or a quick short game session."
+                instead_result = ["If you want a lighter session: 9 holes or a quick short game session."]
             elif playability_tier == "Decent":
-                result["if_not_try_this_instead"] = "If you are short on time: 9 holes or a range session."
+                instead_result = ["If you are short on time: 9 holes or a range session."]
             elif playability_tier == "Challenging":
-                result["if_not_try_this_instead"] = "If you want it easier today: range and short game. If you still play: 9 holes."
+                instead_result = ["If you want it easier today: range and short game. If you still play: 9 holes."]
             else:  # Rough
-                result["if_not_try_this_instead"] = "Best alternative: range or simulator. Save the full round for another day."
+                instead_result = ["Best alternative: range or simulator. Save the full round for another day."]
+        result["instead_activities"] = instead_result[:1]
     
-    if "but_if_you_do_play" not in result or not isinstance(result.get("but_if_you_do_play"), list) or len(result.get("but_if_you_do_play", [])) < len(if_you_play_tips_det):
-        but_result = result.get("but_if_you_do_play", [])
-        if not isinstance(but_result, list):
-            but_result = []
-        # Fill up to required length from deterministic fallback
-        while len(but_result) < len(if_you_play_tips_det) and len(if_you_play_tips_det) > len(but_result):
-            but_result.append(if_you_play_tips_det[len(but_result)])
-        # If still short, add generic defaults
-        while len(but_result) < max(2, len(if_you_play_tips_det)):
-            if playability_tier in ["Challenging", "Rough"]:
-                but_result.append("Pack waterproofs and a spare glove. Conditions can change quickly.")
-            else:
-                but_result.append("Keep an eye on the weather. Conditions are decent but can change.")
-        result["but_if_you_do_play"] = but_result[:len(if_you_play_tips_det)] if if_you_play_tips_det else but_result[:2]
+    if "if_you_play_tips" not in result or not isinstance(result.get("if_you_play_tips"), list):
+        tips_result = result.get("if_you_play_tips", [])
+        if not isinstance(tips_result, list):
+            tips_result = []
+        # Fill from deterministic fallback
+        while len(tips_result) < len(if_you_play_tips_det) and len(if_you_play_tips_det) > len(tips_result):
+            tips_result.append(if_you_play_tips_det[len(tips_result)])
+        # If still short and required for Challenging/Rough, add generic defaults
+        if playability_tier in ["Challenging", "Rough"]:
+            while len(tips_result) < 2:
+                tips_result.append("Pack waterproofs and a spare glove. Conditions can change quickly.")
+        result["if_you_play_tips"] = tips_result
     
     # Enforce style rules: remove dashes, fix repetition, ensure short sentences, enforce word limits
     def clean_text(text: str, max_words: int = None) -> str:
@@ -4225,29 +4175,29 @@ def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: D
         text = text.replace(" – ", ". ")
         text = text.replace("–", ". ")
         text = text.replace(" - ", ". ")
-    # Clean up multiple spaces
-    text = re.sub(r'\s+', ' ', text)
-    text = text.strip()
-    # Enforce word limit if specified
-    if max_words:
-        words = text.split()
-        if len(words) > max_words:
-            # Truncate to max_words and add period
-            text = " ".join(words[:max_words])
-            if not text.endswith((".", "!", "?")):
-                text += "."
-    # Remove double full stops
-    while ".." in text:
-        text = text.replace("..", ".")
-    while ". ." in text:
-        text = text.replace(". .", ".")
-    # Remove "If you're X: If you're Y" structures (redundant conditionals)
-    text = re.sub(r'If you\'re ([^:]+):\s*If you\'re ([^:]+):', r'If you\'re \1:', text, flags=re.IGNORECASE)
-    text = re.sub(r'If you want ([^:]+):\s*If you want ([^:]+):', r'If you want \1:', text, flags=re.IGNORECASE)
-    # Ensure proper sentence ending
-    if text and not text.endswith((".", "!", "?")):
-        text += "."
-    return text
+        # Clean up multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        text = text.strip()
+        # Enforce word limit if specified
+        if max_words:
+            words = text.split()
+            if len(words) > max_words:
+                # Truncate to max_words and add period
+                text = " ".join(words[:max_words])
+                if not text.endswith((".", "!", "?")):
+                    text += "."
+        # Remove double full stops
+        while ".." in text:
+            text = text.replace("..", ".")
+        while ". ." in text:
+            text = text.replace(". .", ".")
+        # Remove "If you're X: If you're Y" structures (redundant conditionals)
+        text = re.sub(r'If you\'re ([^:]+):\s*If you\'re ([^:]+):', r'If you\'re \1:', text, flags=re.IGNORECASE)
+        text = re.sub(r'If you want ([^:]+):\s*If you want ([^:]+):', r'If you want \1:', text, flags=re.IGNORECASE)
+        # Ensure proper sentence ending
+        if text and not text.endswith((".", "!", "?")):
+            text += "."
+        return text
     
     def clean_what_bullet(text: str) -> str:
         """Clean what_you_could_do bullet: max 18 words, no dashes, no repetition"""
@@ -4263,24 +4213,20 @@ def post_process_llm_output(llm_output: Dict[str, Any], deterministic_payload: D
                 cleaned = "Book 9 holes to avoid fighting through tough conditions."
         return cleaned
     
-    # Clean all text fields
-    if "headline" in result:
-        result["headline"] = clean_text(result["headline"])
+    # Clean all Format A text fields
     if "banner_summary_line" in result:
         result["banner_summary_line"] = clean_text(result["banner_summary_line"])
-    if "best_move" in result:
-        result["best_move"] = clean_text(result["best_move"])
     if "why_bullets" in result and isinstance(result["why_bullets"], list):
         result["why_bullets"] = [clean_text(b) for b in result["why_bullets"]]
-    if "what_you_could_do" in result and isinstance(result["what_you_could_do"], list):
-        # Apply special cleaning for what_you_could_do bullets: max 18 words, no repetition
-        result["what_you_could_do"] = [clean_what_bullet(b) for b in result["what_you_could_do"]]
+    if "what_you_could_do_bullets" in result and isinstance(result["what_you_could_do_bullets"], list):
+        # Apply special cleaning for what_you_could_do_bullets: max 18 words, no repetition
+        result["what_you_could_do_bullets"] = [clean_what_bullet(b) for b in result["what_you_could_do_bullets"]]
         # Cap at max_what_bullets
-        result["what_you_could_do"] = result["what_you_could_do"][:max_what_bullets]
-    if "if_not_try_this_instead" in result:
-        result["if_not_try_this_instead"] = clean_text(result["if_not_try_this_instead"])
-    if "but_if_you_do_play" in result and isinstance(result["but_if_you_do_play"], list):
-        result["but_if_you_do_play"] = [clean_text(b) for b in result["but_if_you_do_play"]]
+        result["what_you_could_do_bullets"] = result["what_you_could_do_bullets"][:max_what_bullets]
+    if "instead_activities" in result and isinstance(result["instead_activities"], list):
+        result["instead_activities"] = [clean_text(b) for b in result["instead_activities"]]
+    if "if_you_play_tips" in result and isinstance(result["if_you_play_tips"], list):
+        result["if_you_play_tips"] = [clean_text(b) for b in result["if_you_play_tips"]]
     
     return result
 
@@ -4504,122 +4450,70 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
                     errors["llm_error_message"] = "LLM call returned None (error occurred)"
                 return "templates", "generate_recommendations", deterministic_payload, errors
             
-            # Map Format B (legacy) to Format A if needed
-            # Format B keys: headline, what_you_could_do_bullets, instead_activities, if_you_play_tips
-            # Format A keys: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
-            
-            if "headline" in llm_output and "banner_summary_line" not in llm_output:
-                llm_output["banner_summary_line"] = llm_output["headline"]
-            
-            if "what_you_could_do_bullets" in llm_output and "what_you_could_do" not in llm_output:
-                llm_output["what_you_could_do"] = llm_output["what_you_could_do_bullets"]
-            
-            if "instead_activities" in llm_output:
-                instead_val = llm_output["instead_activities"]
-                if isinstance(instead_val, list):
-                    llm_output["if_not_try_this_instead"] = instead_val[0] if instead_val else ""
-                elif isinstance(instead_val, str):
-                    llm_output["if_not_try_this_instead"] = instead_val
-            
-            if "if_you_play_tips" in llm_output and "but_if_you_do_play" not in llm_output:
-                tips_val = llm_output["if_you_play_tips"]
-                if isinstance(tips_val, list):
-                    llm_output["but_if_you_do_play"] = tips_val
-                elif isinstance(tips_val, str):
-                    llm_output["but_if_you_do_play"] = [tips_val] if tips_val else []
-            
-            # Validate Format A critical keys (lenient - only reject truly unusable)
-            # Format A required: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
+            # Validate Format A keys only (lenient - return None if invalid, fall back to templates)
+            # Format A required keys: banner_summary_line, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
+            # If LLM output is not valid Format A, return None and use templates
             
             critical_missing = []
             
-            # Check banner_summary_line (can derive from headline)
+            # Check banner_summary_line
             if "banner_summary_line" not in llm_output:
-                if "headline" in llm_output and llm_output["headline"]:
-                    llm_output["banner_summary_line"] = llm_output["headline"]
-                else:
-                    critical_missing.append("banner_summary_line")
+                critical_missing.append("banner_summary_line")
             elif not isinstance(llm_output["banner_summary_line"], str) or not llm_output["banner_summary_line"].strip():
-                critical_missing.append("banner_summary_line (empty)")
+                critical_missing.append("banner_summary_line (empty or wrong type)")
             
-            # Check what_you_could_do_bullets (can derive from what_you_could_do)
+            # Check why_bullets
+            if "why_bullets" not in llm_output:
+                critical_missing.append("why_bullets")
+            elif not isinstance(llm_output["why_bullets"], list) or len(llm_output["why_bullets"]) == 0:
+                critical_missing.append("why_bullets (empty or wrong type)")
+            
+            # Check what_you_could_do_bullets
             if "what_you_could_do_bullets" not in llm_output:
-                if "what_you_could_do" in llm_output and isinstance(llm_output["what_you_could_do"], list):
-                    llm_output["what_you_could_do_bullets"] = llm_output["what_you_could_do"]
-                elif "what_you_could_do" in llm_output and llm_output["what_you_could_do"]:
-                    llm_output["what_you_could_do_bullets"] = [llm_output["what_you_could_do"]]
-                else:
-                    critical_missing.append("what_you_could_do_bullets")
+                critical_missing.append("what_you_could_do_bullets")
+            elif not isinstance(llm_output["what_you_could_do_bullets"], list) or len(llm_output["what_you_could_do_bullets"]) == 0:
+                critical_missing.append("what_you_could_do_bullets (empty or wrong type)")
             
-            # Check if_not_try_this_instead (accept string or list, convert list to string)
-            if "if_not_try_this_instead" not in llm_output:
-                critical_missing.append("if_not_try_this_instead")
-            elif isinstance(llm_output["if_not_try_this_instead"], list):
-                llm_output["if_not_try_this_instead"] = llm_output["if_not_try_this_instead"][0] if llm_output["if_not_try_this_instead"] else ""
-            elif not isinstance(llm_output["if_not_try_this_instead"], str) or not llm_output["if_not_try_this_instead"].strip():
-                critical_missing.append("if_not_try_this_instead (empty)")
+            # Check instead_activities
+            if "instead_activities" not in llm_output:
+                critical_missing.append("instead_activities")
+            elif not isinstance(llm_output["instead_activities"], list) or len(llm_output["instead_activities"]) == 0:
+                critical_missing.append("instead_activities (empty or wrong type)")
             
-            # Check but_if_you_do_play (must be list)
-            if "but_if_you_do_play" not in llm_output:
-                critical_missing.append("but_if_you_do_play")
-            elif not isinstance(llm_output["but_if_you_do_play"], list):
-                llm_output["but_if_you_do_play"] = [llm_output["but_if_you_do_play"]] if llm_output["but_if_you_do_play"] else []
+            # Check if_you_play_tips (required for Challenging/Rough, optional otherwise)
+            playability_tier = deterministic_payload.get("playability_tier", "Decent")
+            if playability_tier in ["Challenging", "Rough"]:
+                if "if_you_play_tips" not in llm_output:
+                    critical_missing.append("if_you_play_tips")
+                elif not isinstance(llm_output["if_you_play_tips"], list) or len(llm_output["if_you_play_tips"]) == 0:
+                    critical_missing.append("if_you_play_tips (empty or wrong type)")
             
-            # Only reject if critical keys are missing (truly unusable)
+            # Reject if critical keys are missing or invalid (fail-open: return None, fall back to templates)
             if critical_missing:
                 errors["llm_error_type"] = "missing_critical_keys"
-                errors["llm_error_message"] = f"Missing critical keys: {', '.join(critical_missing)}"
+                errors["llm_error_message"] = f"Missing or invalid Format A keys: {', '.join(critical_missing)}"
                 errors["llm_raw_preview"] = str(llm_output)[:200]
                 # Fall back to templates
                 return "templates", "generate_recommendations", deterministic_payload, errors
             
-            # LLM output is valid - map keys to expected format
+            # LLM output is valid Format A - map directly to expected format
             final_payload = deterministic_payload.copy()  # Start with deterministic structure
             
-            # Map LLM output keys to expected format
-            # LLM returns: headline, banner_summary_line, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
-            # Expected format: banner_summary_line, what_you_could_do_bullets, instead_activities, if_you_play_tips
-            
+            # Map Format A keys directly (no Format B mapping)
             if "banner_summary_line" in llm_output:
                 final_payload["banner_summary_line"] = llm_output["banner_summary_line"]
-            elif "headline" in llm_output:
-                final_payload["banner_summary_line"] = llm_output["headline"]
             
-            # Map what_you_could_do_bullets (Format A) or what_you_could_do (Format A alternative)
-            if "what_you_could_do_bullets" in llm_output:
-                final_payload["what_you_could_do_bullets"] = llm_output["what_you_could_do_bullets"]
-            elif "what_you_could_do" in llm_output:
-                final_payload["what_you_could_do_bullets"] = llm_output["what_you_could_do"]
-            
-            # Map if_not_try_this_instead (Format A) or instead_activities (Format B)
-            if "if_not_try_this_instead" in llm_output:
-                # Convert string to list (expected format)
-                instead_str = llm_output["if_not_try_this_instead"]
-                final_payload["instead_activities"] = [instead_str] if instead_str else []
-            elif "instead_activities" in llm_output:
-                # Format B - already a list or string
-                instead_val = llm_output["instead_activities"]
-                if isinstance(instead_val, list):
-                    final_payload["instead_activities"] = instead_val
-                else:
-                    final_payload["instead_activities"] = [instead_val] if instead_val else []
-            
-            # Map but_if_you_do_play (Format A) or if_you_play_tips (Format B)
-            if "but_if_you_do_play" in llm_output:
-                final_payload["if_you_play_tips"] = llm_output["but_if_you_do_play"]
-            elif "if_you_play_tips" in llm_output:
-                # Format B - already a list or string
-                tips_val = llm_output["if_you_play_tips"]
-                if isinstance(tips_val, list):
-                    final_payload["if_you_play_tips"] = tips_val
-                else:
-                    final_payload["if_you_play_tips"] = [tips_val] if tips_val else []
-            
-            # Preserve other LLM fields
             if "why_bullets" in llm_output:
                 final_payload["why_bullets"] = llm_output["why_bullets"]
-            if "best_move" in llm_output:
-                final_payload["best_move"] = llm_output["best_move"]
+            
+            if "what_you_could_do_bullets" in llm_output:
+                final_payload["what_you_could_do_bullets"] = llm_output["what_you_could_do_bullets"]
+            
+            if "instead_activities" in llm_output:
+                final_payload["instead_activities"] = llm_output["instead_activities"]
+            
+            if "if_you_play_tips" in llm_output:
+                final_payload["if_you_play_tips"] = llm_output["if_you_play_tips"]
             
             # Extract timing metadata if present
             llm_metadata = llm_output.pop("_llm_metadata", {})
@@ -4761,17 +4655,15 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
         # Determine max bullets for what_you_could_do based on tier
         max_what_bullets = 3 if playability_tier in ["Challenging", "Rough"] else 2
         
-        # Build example JSON schema with actual values for clarity
+        # Build example JSON schema with actual values for clarity (Format A only)
         example_json = {
-            "headline": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
-            "best_move": best_move,
             "banner_summary_line": "Cold air will cost you distance and soft ground will kill roll, so it's playable but not built for scoring.",
             "why_bullets": [
                 "Weather conditions are challenging with cold temperatures reducing ball distance.",
                 "The course ground is soft from recent rain, which will affect roll and lie quality.",
                 "At your handicap level, these conditions will make scoring more difficult than usual."
             ],
-            "what_you_could_do": [
+            "what_you_could_do_bullets": [
                 "Book early morning slots for better pace and smoother rounds.",
                 "Consider 9 holes if you want to avoid fighting conditions."
             ] if playability_tier in ["Great", "Decent"] else [
@@ -4779,8 +4671,12 @@ async def llm_rewrite_assessment_copy(deterministic_payload: Dict[str, Any], req
                 "Early morning slots offer better pace when it's quieter.",
                 "Range session lets you work on technique without pressure."
             ],
-            "if_not_try_this_instead": "If you want max value today: range plus short game." if playability_tier in ["Challenging", "Rough"] else "If you want it easier: play 9 and keep it moving.",
-            "but_if_you_do_play": [
+            "instead_activities": [
+                "If you want max value today: range plus short game."
+            ] if playability_tier in ["Challenging", "Rough"] else [
+                "If you want it easier: play 9 and keep it moving."
+            ],
+            "if_you_play_tips": [
                 "Pack waterproofs and a spare glove. Conditions can change quickly and staying dry keeps you comfortable.",
                 "Take one more club and swing smooth. The conditions will cost you distance, so club up and trust your swing.",
                 "Adjust expectations and focus on technique. Today's about building good habits, not scoring low."
@@ -4843,28 +4739,26 @@ HANDICAP WEIGHTING RULES:
 INPUT DATA (deterministic output):
 {safe_json(llm_payload)}
 
-REQUIRED OUTPUT FORMAT - EXACT JSON SCHEMA:
+REQUIRED OUTPUT FORMAT - EXACT JSON SCHEMA (Format A only):
 You MUST return ONLY valid JSON matching this exact structure. Copy this format exactly:
 
 {safe_json(example_json)}
 
-REQUIRED KEYS (all must be present):
-- headline: string - 1 sentence summary in friendly tone explaining WHY the tier is what it is (useful and specific, not flat)
-- best_move: string - MUST be exactly "{best_move}" (do not change)
+REQUIRED KEYS (all must be present - Format A only):
 - banner_summary_line: string - Max 2 sentences. No colons. No hyphens. No repeating Playability + Best move. Friendly pro shop golfer tone.
-- why_bullets: array of exactly 3 strings - Weather/ground first, then course, handicap only if relevant
-- what_you_could_do: array of {max_what_bullets} strings max ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")}) - Each bullet: starts with verb/action, one sentence, max 18 words, actionable, not generic. Do NOT repeat the heading or restate "18 holes" without a reason. Example: "Play 18 if you have the time. The ground is soft so expect less run on approaches."
-- if_not_try_this_instead: string - One tight line following format "If you want [benefit]: [action]." Examples: "If you want max value today: range plus short game." or "If you want it easier: play 9 and keep it moving."
-- but_if_you_do_play: array of exactly {len(if_you_play_tips)} strings - Practical tips if they decide to play
+- why_bullets: array of strings - Weather/ground first, then course, handicap only if relevant
+- what_you_could_do_bullets: array of {max_what_bullets} strings max ({max_what_bullets} for {("Challenging/Rough" if playability_tier in ["Challenging", "Rough"] else "Great/Decent")}) - Each bullet: starts with verb/action, one sentence, max 18 words, actionable, not generic. Do NOT repeat the heading or restate "18 holes" without a reason. Example: "Play 18 if you have the time. The ground is soft so expect less run on approaches."
+- instead_activities: array of strings (typically 1 item) - One tight line following format "If you want [benefit]: [action]." Examples: "If you want max value today: range plus short game." or "If you want it easier: play 9 and keep it moving."
+- if_you_play_tips: array of strings - Practical tips if they decide to play (required for Challenging/Rough tiers)
 
 CRITICAL JSON RULES:
 1. Return ONLY valid JSON - no markdown code blocks, no ```json```, no explanations, no commentary
-2. Use exactly these 7 keys: headline, best_move, banner_summary_line, why_bullets, what_you_could_do, if_not_try_this_instead, but_if_you_do_play
-3. No extra keys beyond these 7
+2. Use exactly these 5 keys: banner_summary_line, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
+3. No extra keys beyond these 5 (no headline, best_move, what_you_could_do, if_not_try_this_instead, but_if_you_do_play)
 4. No comments in JSON
 5. All strings must be non-empty
-6. All arrays must have the exact required length
-7. best_move MUST be exactly "{best_move}" (do not change)
+6. All arrays must contain non-empty strings
+7. If LLM output is not valid Format A, return None and use templates
 
 STYLE ENFORCEMENT:
 - NO em dashes (—), NO en dashes (–), NO hyphens used as punctuation (-)
@@ -5006,92 +4900,51 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
                 else:
                     parse_stage = "plaintext_salvage_ok"
             
-            # Post-process: map keys, fill defaults, enforce style rules
+            # Post-process: fill defaults, enforce style rules (no Format B mapping)
             rewritten_data = post_process_llm_output(parsed_data, deterministic_payload)
             
-            # Map Format B (legacy) to Format A if needed
-            # Format B keys: headline, best_move, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
-            # Format A keys: banner_summary_line, what_you_could_do_bullets, if_not_try_this_instead, but_if_you_do_play
-            
-            # Check if we have Format B (legacy format)
-            has_format_b = (
-                "headline" in rewritten_data or
-                "what_you_could_do_bullets" in rewritten_data or
-                "instead_activities" in rewritten_data or
-                "if_you_play_tips" in rewritten_data
-            )
-            
-            # Map Format B to Format A
-            if has_format_b:
-                # Map headline to banner_summary_line if banner_summary_line is missing
-                if "headline" in rewritten_data and "banner_summary_line" not in rewritten_data:
-                    rewritten_data["banner_summary_line"] = rewritten_data["headline"]
-                
-                # Map what_you_could_do_bullets to what_you_could_do if needed
-                if "what_you_could_do_bullets" in rewritten_data and "what_you_could_do" not in rewritten_data:
-                    rewritten_data["what_you_could_do"] = rewritten_data["what_you_could_do_bullets"]
-                
-                # Map instead_activities to if_not_try_this_instead if needed
-                if "instead_activities" in rewritten_data:
-                    instead_val = rewritten_data["instead_activities"]
-                    if isinstance(instead_val, list):
-                        # Convert list to string (take first item or join)
-                        rewritten_data["if_not_try_this_instead"] = instead_val[0] if instead_val else ""
-                    elif isinstance(instead_val, str):
-                        rewritten_data["if_not_try_this_instead"] = instead_val
-                
-                # Map if_you_play_tips to but_if_you_do_play if needed
-                if "if_you_play_tips" in rewritten_data and "but_if_you_do_play" not in rewritten_data:
-                    tips_val = rewritten_data["if_you_play_tips"]
-                    if isinstance(tips_val, list):
-                        rewritten_data["but_if_you_do_play"] = tips_val
-                    elif isinstance(tips_val, str):
-                        rewritten_data["but_if_you_do_play"] = [tips_val] if tips_val else []
-            
-            # Validate Format A required keys (lenient - only reject truly unusable output)
-            # Format A required keys:
-            # - banner_summary_line (string)
-            # - what_you_could_do_bullets (list[str]) OR what_you_could_do (list[str])
-            # - if_not_try_this_instead (string OR list[str])
-            # - but_if_you_do_play (list[str])
+            # Validate Format A keys only (lenient - return None if invalid, fall back to templates)
+            # Format A required keys: banner_summary_line, why_bullets, what_you_could_do_bullets, instead_activities, if_you_play_tips
+            # If LLM output is not valid Format A, return None and use templates
             
             critical_missing = []
             
-            # Check banner_summary_line (can derive from headline if missing)
+            # Check banner_summary_line
             if "banner_summary_line" not in rewritten_data:
-                if "headline" in rewritten_data and rewritten_data["headline"]:
-                    rewritten_data["banner_summary_line"] = rewritten_data["headline"]
-                else:
-                    critical_missing.append("banner_summary_line")
+                critical_missing.append("banner_summary_line")
+            elif not isinstance(rewritten_data["banner_summary_line"], str) or not rewritten_data["banner_summary_line"].strip():
+                critical_missing.append("banner_summary_line (empty or wrong type)")
             
-            # Check what_you_could_do_bullets (accept what_you_could_do as alternative)
+            # Check why_bullets
+            if "why_bullets" not in rewritten_data:
+                critical_missing.append("why_bullets")
+            elif not isinstance(rewritten_data["why_bullets"], list) or len(rewritten_data["why_bullets"]) == 0:
+                critical_missing.append("why_bullets (empty or wrong type)")
+            
+            # Check what_you_could_do_bullets
             if "what_you_could_do_bullets" not in rewritten_data:
-                if "what_you_could_do" in rewritten_data and isinstance(rewritten_data["what_you_could_do"], list):
-                    rewritten_data["what_you_could_do_bullets"] = rewritten_data["what_you_could_do"]
-                elif "what_you_could_do" in rewritten_data and rewritten_data["what_you_could_do"]:
-                    # Single value, convert to list
-                    rewritten_data["what_you_could_do_bullets"] = [rewritten_data["what_you_could_do"]]
-                else:
-                    critical_missing.append("what_you_could_do_bullets")
+                critical_missing.append("what_you_could_do_bullets")
+            elif not isinstance(rewritten_data["what_you_could_do_bullets"], list) or len(rewritten_data["what_you_could_do_bullets"]) == 0:
+                critical_missing.append("what_you_could_do_bullets (empty or wrong type)")
             
-            # Check if_not_try_this_instead (accept string or list)
-            if "if_not_try_this_instead" not in rewritten_data:
-                critical_missing.append("if_not_try_this_instead")
-            elif isinstance(rewritten_data["if_not_try_this_instead"], list):
-                # Convert list to string (take first item)
-                rewritten_data["if_not_try_this_instead"] = rewritten_data["if_not_try_this_instead"][0] if rewritten_data["if_not_try_this_instead"] else ""
+            # Check instead_activities
+            if "instead_activities" not in rewritten_data:
+                critical_missing.append("instead_activities")
+            elif not isinstance(rewritten_data["instead_activities"], list) or len(rewritten_data["instead_activities"]) == 0:
+                critical_missing.append("instead_activities (empty or wrong type)")
             
-            # Check but_if_you_do_play (must be list)
-            if "but_if_you_do_play" not in rewritten_data:
-                critical_missing.append("but_if_you_do_play")
-            elif not isinstance(rewritten_data["but_if_you_do_play"], list):
-                # Convert string to list
-                rewritten_data["but_if_you_do_play"] = [rewritten_data["but_if_you_do_play"]] if rewritten_data["but_if_you_do_play"] else []
+            # Check if_you_play_tips (required for Challenging/Rough, optional otherwise)
+            playability_tier = deterministic_payload.get("playability_tier", "Decent")
+            if playability_tier in ["Challenging", "Rough"]:
+                if "if_you_play_tips" not in rewritten_data:
+                    critical_missing.append("if_you_play_tips")
+                elif not isinstance(rewritten_data["if_you_play_tips"], list) or len(rewritten_data["if_you_play_tips"]) == 0:
+                    critical_missing.append("if_you_play_tips (empty or wrong type)")
             
-            # Only reject if critical keys are missing (truly unusable)
+            # Reject if critical keys are missing or invalid (fail-open: return None, fall back to templates)
             if critical_missing:
                 elapsed_ms = int((time.time() - start_time) * 1000)
-                logger.error(f"LLM missing critical keys after mapping: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+                logger.error(f"LLM missing or invalid Format A keys: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
                 # Return None instead of raising - build_final_copy will fall back to templates
                 return None
             
