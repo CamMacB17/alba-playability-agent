@@ -53,6 +53,57 @@ app = FastAPI()
 # Format: {(ip, route_key): deque([timestamp1, timestamp2, ...])}
 _rate_limit_store: Dict[Tuple[str, str], deque] = {}
 
+def log_with_context(level: str, message: str, context: Dict[str, Any] = None, **fields):
+    """
+    Structured logging helper with request context.
+    Formats logs as single-line JSON-like key=value pairs for Railway.
+    Never blocks requests - swallows all logging errors.
+    
+    Args:
+        level: Log level ('info', 'warning', 'error')
+        message: Log message
+        context: Request context dict (request_id, method, path, course, day, time_of_day, ip)
+        **fields: Additional fields to include in log
+    """
+    try:
+        # Merge context and additional fields
+        log_fields = {}
+        if context:
+            log_fields.update(context)
+        log_fields.update(fields)
+        
+        # Build log line: message followed by key=value pairs
+        parts = [message]
+        for key, value in sorted(log_fields.items()):
+            # Format values safely (handle None, escape quotes)
+            if value is None:
+                value_str = "null"
+            elif isinstance(value, str):
+                # Escape quotes and special chars for readability
+                value_str = value.replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+                parts.append(f'{key}="{value_str}"')
+            elif isinstance(value, (int, float, bool)):
+                parts.append(f'{key}={value}')
+            else:
+                # Convert other types to string
+                value_str = str(value).replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+                parts.append(f'{key}="{value_str}"')
+        
+        log_line = ' '.join(parts)
+        
+        # Log at appropriate level
+        if level.lower() == 'info':
+            logger.info(log_line)
+        elif level.lower() == 'warning':
+            logger.warning(log_line)
+        elif level.lower() == 'error':
+            logger.error(log_line)
+        else:
+            logger.info(log_line)  # Default to info
+    except Exception:
+        # Swallow all logging errors - never block requests
+        pass
+
 def get_client_ip(request: StarletteRequest) -> str:
     """
     Extract client IP from request. Fail-open: returns "unknown" if IP cannot be determined.
@@ -117,6 +168,9 @@ async def rate_limit_middleware(request: StarletteRequest, call_next):
         path = request.url.path
         method = request.method
         
+        # Get request_id from headers if available (routes will generate if missing)
+        request_id = request.headers.get("X-Request-ID", "none")
+        
         # Only apply rate limiting to specific routes
         route_config = None
         if path == "/assess" and method in ["GET", "POST"]:
@@ -137,11 +191,17 @@ async def rate_limit_middleware(request: StarletteRequest, call_next):
         limit_exceeded = check_rate_limit_internal(client_ip, route_key, max_requests, window_seconds=60)
         
         if limit_exceeded:
-            # Get request_id from headers if available (some endpoints set this)
-            request_id = request.headers.get("X-Request-ID", "none")
-            
-            # Log warning with ip, path, method, and request_id
-            logger.warning(f"RATE_LIMIT_BLOCKED: ip={client_ip} path={path} method={method} request_id={request_id}")
+            # Log warning with structured context
+            log_with_context(
+                "warning",
+                "RATE_LIMIT_BLOCKED",
+                context={
+                    "request_id": request_id,
+                    "method": method,
+                    "path": path,
+                    "ip": client_ip
+                }
+            )
             
             # Return 429 with plain text
             return PlainTextResponse(content="Too many requests. Please try again in a moment.", status_code=429)
@@ -151,7 +211,10 @@ async def rate_limit_middleware(request: StarletteRequest, call_next):
         
     except Exception as e:
         # Fail-open: log error but allow request through
-        logger.error(f"Rate limiter middleware error (allowing request): {str(e)}", exc_info=True)
+        try:
+            logger.error(f"Rate limiter middleware error (allowing request): {str(e)}", exc_info=True)
+        except Exception:
+            pass
         return await call_next(request)
 
 # Course attributes data structure for future logic and dynamic copy
@@ -4443,7 +4506,13 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             
             # If LLM returned None (any error occurred), fall back to templates
             if llm_output is None:
-                logger.warning(f"LLM returned None, falling back to templates (request_id={request_id})")
+                if request_id:
+                    log_with_context(
+                        "warning",
+                        "LLM_FALLBACK",
+                        context={"request_id": request_id},
+                        reason="llm_returned_none"
+                    )
                 # Try to get error details from errors dict if available
                 if not errors.get("llm_error_type"):
                     errors["llm_error_type"] = "llm_returned_none"
@@ -4490,6 +4559,14 @@ async def build_final_copy(context: Dict[str, Any], deterministic_payload: Dict[
             
             # Reject if critical keys are missing or invalid (fail-open: return None, fall back to templates)
             if critical_missing:
+                if request_id:
+                    log_with_context(
+                        "warning",
+                        "LLM_FALLBACK",
+                        context={"request_id": request_id},
+                        reason="missing_format_a_keys",
+                        missing_keys=", ".join(critical_missing)
+                    )
                 errors["llm_error_type"] = "missing_critical_keys"
                 errors["llm_error_message"] = f"Missing or invalid Format A keys: {', '.join(critical_missing)}"
                 errors["llm_raw_preview"] = str(llm_output)[:200]
@@ -4944,7 +5021,21 @@ Return ONLY valid JSON matching the exact schema above. No markdown, no code blo
             # Reject if critical keys are missing or invalid (fail-open: return None, fall back to templates)
             if critical_missing:
                 elapsed_ms = int((time.time() - start_time) * 1000)
-                logger.error(f"LLM missing or invalid Format A keys: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+                if request_id:
+                    log_with_context(
+                        "warning",
+                        "LLM_FALLBACK",
+                        context={"request_id": request_id},
+                        reason="missing_format_a_keys",
+                        missing_keys=", ".join(critical_missing),
+                        duration_ms=elapsed_ms,
+                        model=llm_model
+                    )
+                # Also log with existing format for backward compatibility
+                try:
+                    logger.error(f"LLM missing or invalid Format A keys: {critical_missing} duration_ms={elapsed_ms} timeout_seconds={llm_timeout_seconds} model={llm_model} raw_preview={llm_raw_preview}")
+                except Exception:
+                    pass
                 # Return None instead of raising - build_final_copy will fall back to templates
                 return None
             
@@ -6079,7 +6170,19 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         month = target_datetime.month
     except Exception as e:
         # Invalid date/time input - log and use defaults
-        logger.error(f"Invalid date/time input (request_id={request_id}): {str(e)}", exc_info=True)
+        if request_id:
+            log_with_context(
+                "error",
+                "INVALID_DATE_TIME",
+                context={"request_id": request_id},
+                error=str(e),
+                error_type=type(e).__name__
+            )
+        # Also log with exc_info for stack trace
+        try:
+            logger.error(f"Invalid date/time input (request_id={request_id}): {str(e)}", exc_info=True)
+        except Exception:
+            pass
         today = datetime.now().date()
         target_date = today.isoformat()
         target_datetime = datetime.now()
@@ -6103,7 +6206,20 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
             if day == "Today":
                 tomorrow_weather = await fetch_tomorrow_weather(lat, lon)
         except Exception as e:
-            logger.error(f"Error fetching weather data (request_id={request_id}): {str(e)}", exc_info=True)
+            # Log error with structured context before re-raising
+            if request_id:
+                log_with_context(
+                    "error",
+                    "WEATHER_API_ERROR",
+                    context={"request_id": request_id},
+                    error=str(e),
+                    error_type=type(e).__name__
+                )
+            # Also log with exc_info for stack trace
+            try:
+                logger.error(f"Error fetching weather data (request_id={request_id}): {str(e)}", exc_info=True)
+            except Exception:
+                pass
             # Hard failure: re-raise weather API failures
             raise
     
@@ -7759,11 +7875,45 @@ async def assess_post(
     handicap: int = Form(None),
     golf_experience: str = Form("Regular"),
     day: str = Form(...),
-    time_of_day: str = Form(...)
+    time_of_day: str = Form(...),
+    request: StarletteRequest = None
 ):
     """
     Handle POST form submission and redirect to GET with query parameters.
     """
+    # Ensure request_id is present (reuse from headers or generate)
+    request_id = None
+    if request:
+        request_id = request.headers.get("X-Request-ID")
+    if not request_id:
+        request_id = str(uuid4())
+    
+    # Extract request context
+    context = {
+        "request_id": request_id,
+        "method": "POST",
+        "path": "/assess"
+    }
+    
+    # Add IP to context
+    if request:
+        try:
+            client_ip = get_client_ip(request)
+            context["ip"] = client_ip
+        except Exception:
+            context["ip"] = "unknown"
+    
+    # Add form parameters to context
+    if course:
+        context["course"] = course
+    if day:
+        context["day"] = day
+    if time_of_day:
+        context["time_of_day"] = time_of_day
+    
+    # Log POST request (will redirect to GET)
+    log_with_context("info", "ASSESS_POST", context=context)
+    
     # Build query parameters - only include handicap if provided
     params = {
         "course": course,
@@ -8012,14 +8162,42 @@ async def assess_get(
     handicap: int = Query(None),
     golf_experience: str = Query("Regular"),
     day: str = Query(None),
-    time_of_day: str = Query(None)
+    time_of_day: str = Query(None),
+    request: StarletteRequest = None
 ):
     """
     Handle GET request for assessment results.
     LLM is always enabled if OPENAI_API_KEY is present (no query params needed).
     """
-    # Generate unique request ID for this request
-    request_id = str(uuid4())
+    # Ensure request_id is present (reuse from headers or generate)
+    request_id = None
+    if request:
+        request_id = request.headers.get("X-Request-ID")
+    if not request_id:
+        request_id = str(uuid4())
+    
+    # Extract request context
+    context = {
+        "request_id": request_id,
+        "method": "GET",
+        "path": "/assess"
+    }
+    
+    # Add IP to context
+    if request:
+        try:
+            client_ip = get_client_ip(request)
+            context["ip"] = client_ip
+        except Exception:
+            context["ip"] = "unknown"
+    
+    # Add query parameters to context if present
+    if course:
+        context["course"] = course
+    if day:
+        context["day"] = day
+    if time_of_day:
+        context["time_of_day"] = time_of_day
     
     # Validate required parameters
     # Check if course is missing or blank (after stripping whitespace)
@@ -8038,15 +8216,20 @@ async def assess_get(
     if golf_experience not in ["Beginner", "Regular", "Confident"]:
         golf_experience = "Regular"
     
-    # request_id already generated above for rate limiting
-    
     # LLM is always enabled if OPENAI_API_KEY exists (no query params needed)
     has_openai_key = bool(OPENAI_API_KEY)
     llm_flag = "default-on"  # LLM is always on by default if key exists
     llm_effective = bool(openai_client)  # Effective LLM status
     
-    # Log assessment start with debug info
-    logger.info(f"ASSESS: request_id={request_id} llm_flag={llm_flag} has_key={has_openai_key} llm_effective={llm_effective}")
+    # Log assessment start with structured context
+    log_with_context(
+        "info",
+        "ASSESS_START",
+        context=context,
+        llm_flag=llm_flag,
+        has_key=has_openai_key,
+        llm_effective=llm_effective
+    )
     
     def get_user_friendly_error_message(exception: Exception) -> str:
         """
@@ -8079,7 +8262,10 @@ async def assess_get(
     # Render results with fail-open error handling
     # First attempt: try with LLM enabled (if available)
     try:
-        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=False)
+        result = await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=False)
+        # Log assessment completed successfully
+        log_with_context("info", "ASSESS_COMPLETED", context=context)
+        return result
     except Exception as e:
         # Check if this is a hard failure (course not found, weather API failure, invalid input)
         # These should show the error page
@@ -8093,9 +8279,18 @@ async def assess_get(
         
         if is_hard_failure:
             # Hard failure: show error page
-            logger.error(f"Hard failure rendering assessment results (request_id={request_id}): {str(e)}", exc_info=True)
-            # Temporary detailed logging before error page render
-            logger.error(f"ERROR_PAGE_RENDER: exception_type={type(e).__name__} exception_message={str(e)} request_id={request_id}", exc_info=True)
+            log_with_context(
+                "error",
+                "ASSESS_HARD_FAILURE",
+                context=context,
+                exception_type=type(e).__name__,
+                exception_message=str(e)
+            )
+            # Also log with exc_info for stack trace (structured logging doesn't include stack trace)
+            try:
+                logger.error(f"ASSESS_HARD_FAILURE: request_id={request_id} exception_type={type(e).__name__} exception_message={str(e)}", exc_info=True)
+            except Exception:
+                pass
             user_message = get_user_friendly_error_message(e)
             return f"""
         <!DOCTYPE html>
@@ -8165,15 +8360,34 @@ async def assess_get(
         """
         else:
             # Soft failure (copy/LLM issues): fail-open by retrying with templates only
-            logger.exception(f"ASSESS_FAIL_OPEN request_id={request_id} error={str(e)}")
+            log_with_context(
+                "warning",
+                "ASSESS_FAIL_OPEN",
+                context=context,
+                error=str(e),
+                error_type=type(e).__name__
+            )
             try:
                 # Retry with LLM forcibly disabled (templates only)
-                return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=True)
+                result = await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=True)
+                # Log successful retry
+                log_with_context("info", "ASSESS_COMPLETED", context=context, retry=True)
+                return result
             except Exception as retry_exception:
                 # If retry also fails, this is likely a hard failure - show error page
-                logger.error(f"Retry with templates also failed (request_id={request_id}): {str(retry_exception)}", exc_info=True)
-                # Temporary detailed logging before error page render
-                logger.error(f"ERROR_PAGE_RENDER: exception_type={type(retry_exception).__name__} exception_message={str(retry_exception)} request_id={request_id}", exc_info=True)
+                log_with_context(
+                    "error",
+                    "ASSESS_HARD_FAILURE",
+                    context=context,
+                    exception_type=type(retry_exception).__name__,
+                    exception_message=str(retry_exception),
+                    retry=True
+                )
+                # Also log with exc_info for stack trace
+                try:
+                    logger.error(f"ASSESS_HARD_FAILURE: request_id={request_id} exception_type={type(retry_exception).__name__} exception_message={str(retry_exception)}", exc_info=True)
+                except Exception:
+                    pass
                 user_message = get_user_friendly_error_message(retry_exception)
                 return f"""
         <!DOCTYPE html>
