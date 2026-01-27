@@ -977,7 +977,8 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                         if not isinstance(course, dict):
                             continue
                         
-                        # Check required fields: name (non-empty string), lat and lon (numbers or convertible to floats)
+                        # Check required fields: name (non-empty string)
+                        # Lat and lon are optional (required for assessment endpoints, optional for search)
                         name = course.get("name")
                         if not name or not isinstance(name, str) or not name.strip():
                             continue
@@ -993,12 +994,14 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                             lat_float = None
                             lon_float = None
                         
-                        # Both lat and lon must be present and valid numbers
-                        if lat_float is None or lon_float is None:
-                            continue
-                        
                         # Normalize course: ensure optional fields exist with safe defaults
                         normalized_course = dict(course)
+                        
+                        # Lat and lon are optional (required for assessment endpoints, optional for search)
+                        if lat_float is not None and lon_float is not None:
+                            normalized_course["lat"] = lat_float
+                            normalized_course["lon"] = lon_float
+                        
                         if "area" not in normalized_course:
                             normalized_course["area"] = ""
                         
