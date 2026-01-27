@@ -738,13 +738,114 @@ def load_courses():
     return merge_course_overrides(DEMO_COURSES)
 
 
+def normalize_course_name(name: str) -> str:
+    """
+    Normalize course name: strip, collapse multiple spaces, casefold.
+    Used for matching course names.
+    """
+    try:
+        # Strip whitespace
+        normalized = name.strip()
+        # Collapse multiple spaces to single space
+        normalized = re.sub(r'\s+', ' ', normalized)
+        # Casefold (case-insensitive comparison)
+        normalized = normalized.casefold()
+        return normalized
+    except Exception:
+        return name
+
+def fuzzy_normalize_course_name(name: str) -> str:
+    """
+    Light fuzzy normalization: remove punctuation characters like apostrophes, commas, periods.
+    Used as a fallback for matching.
+    """
+    try:
+        # Start with normalized form
+        normalized = normalize_course_name(name)
+        # Remove punctuation: apostrophes, commas, periods, hyphens, etc.
+        normalized = re.sub(r'[^\w\s]', '', normalized)
+        # Collapse spaces again after punctuation removal
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        return normalized
+    except Exception:
+        return normalize_course_name(name)
+
 def find_course_by_name(course_name: str):
-    """Find a course by name from the loaded courses."""
-    courses = load_courses()
-    for course in courses:
-        if course["name"] == course_name:
-            return course
-    return None
+    """
+    Find a course by name from the loaded courses.
+    
+    Matching strategy:
+    1. Exact match first (fast path)
+    2. Normalized match (strip, collapse spaces, casefold) - returns only if exactly ONE match
+    3. Fuzzy match (remove punctuation) - returns only if exactly ONE match
+    4. Returns None if multiple matches or no match found
+    
+    Never raises exceptions - returns None on any error.
+    """
+    try:
+        if not course_name or not isinstance(course_name, str):
+            return None
+        
+        courses = load_courses()
+        if not courses:
+            return None
+        
+        # Step 1: Try exact match first (fast path)
+        for course in courses:
+            if course.get("name") == course_name:
+                return course
+        
+        # Step 2: Try normalized matching (strip, collapse spaces, casefold)
+        normalized_input = normalize_course_name(course_name)
+        normalized_matches = []
+        
+        for course in courses:
+            course_name_val = course.get("name")
+            if not course_name_val or not isinstance(course_name_val, str):
+                continue
+            
+            normalized_course = normalize_course_name(course_name_val)
+            if normalized_course == normalized_input:
+                normalized_matches.append(course)
+        
+        # Return match only if exactly ONE match found
+        if len(normalized_matches) == 1:
+            matched_course = normalized_matches[0]
+            logger.info(f"COURSE_MATCH_NORMALIZED: input='{course_name}' matched='{matched_course.get('name')}'")
+            return matched_course
+        elif len(normalized_matches) > 1:
+            # Multiple matches - don't guess, return None
+            return None
+        
+        # Step 3: Try fuzzy fallback (remove punctuation)
+        fuzzy_input = fuzzy_normalize_course_name(course_name)
+        fuzzy_matches = []
+        
+        for course in courses:
+            course_name_val = course.get("name")
+            if not course_name_val or not isinstance(course_name_val, str):
+                continue
+            
+            fuzzy_course = fuzzy_normalize_course_name(course_name_val)
+            if fuzzy_course == fuzzy_input:
+                fuzzy_matches.append(course)
+        
+        # Return match only if exactly ONE match found
+        if len(fuzzy_matches) == 1:
+            matched_course = fuzzy_matches[0]
+            logger.info(f"COURSE_MATCH_FUZZY: input='{course_name}' matched='{matched_course.get('name')}'")
+            return matched_course
+        elif len(fuzzy_matches) > 1:
+            # Multiple matches - don't guess, return None
+            return None
+        
+        # No match found
+        return None
+        
+    except Exception as e:
+        # Never raise - return None on any exception
+        logger.error(f"Error in find_course_by_name (returning None): {str(e)}", exc_info=True)
+        return None
 
 
 def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, Any]]:
