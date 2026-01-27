@@ -934,6 +934,8 @@ def load_courses_from_data(debug_info: Dict[str, Any] = None) -> List[Dict[str, 
                             debug_info["file_head"] = file_content[:200]
                             f.seek(0)
                             courses = json.load(f)
+                            if isinstance(courses, dict):
+                                courses = list(courses.values())
                     except Exception as e:
                         debug_info["parse_error"] = str(e)
                         debug_info["detected_format"] = "unknown"
@@ -7876,7 +7878,7 @@ async def assess_post(
     golf_experience: str = Form("Regular"),
     day: str = Form(...),
     time_of_day: str = Form(...),
-    request: StarletteRequest = None
+    request: Request = None
 ):
     """
     Handle POST form submission and redirect to GET with query parameters.
