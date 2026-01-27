@@ -30,6 +30,7 @@ from collections import deque
 from fastapi import FastAPI, Form, Query, Request, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from urllib.parse import urlencode
 import httpx
@@ -52,24 +53,33 @@ app = FastAPI()
 # Format: {(ip, route_key): deque([timestamp1, timestamp2, ...])}
 _rate_limit_store: Dict[Tuple[str, str], deque] = {}
 
-def check_rate_limit(request: StarletteRequest, route_key: str, max_requests: int, window_seconds: int = 60, request_id: str = None) -> Optional[PlainTextResponse]:
+def get_client_ip(request: StarletteRequest) -> str:
     """
-    Check rate limit for a request. Fail-open: allows request through on any error.
-    
-    Args:
-        request: Starlette request object
-        route_key: Route identifier (e.g., "assess", "courses")
-        max_requests: Maximum requests allowed in window
-        window_seconds: Time window in seconds (default 60)
-        request_id: Optional request ID for logging
-    
-    Returns:
-        PlainTextResponse(429) if rate limit exceeded, None if allowed
+    Extract client IP from request. Fail-open: returns "unknown" if IP cannot be determined.
+    Checks X-Forwarded-For header first, then falls back to request.client.host.
     """
     try:
-        # Get client IP - fail-open: treat as "unknown" if missing
-        client_ip = request.client.host if request.client else "unknown"
+        # Check X-Forwarded-For header first (for proxies/load balancers)
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            # Take first comma-separated value and strip whitespace
+            client_ip = forwarded_for.split(",")[0].strip()
+            if client_ip:
+                return client_ip
         
+        # Fall back to direct client IP
+        if request.client:
+            return request.client.host
+        
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+def check_rate_limit_internal(client_ip: str, route_key: str, max_requests: int, window_seconds: int = 60) -> bool:
+    """
+    Internal rate limit check. Returns True if limit exceeded, False if allowed.
+    """
+    try:
         # Create key for this (ip, route) combination
         key = (client_ip, route_key)
         now = datetime.now(timezone.utc)
@@ -87,24 +97,62 @@ def check_rate_limit(request: StarletteRequest, route_key: str, max_requests: in
         
         # Check if limit exceeded
         if len(timestamps) >= max_requests:
-            # Log warning with ip, path, and request_id if available
-            path = request.url.path
-            logger.warning(f"RATE_LIMIT_BLOCKED: ip={client_ip} path={path} route={route_key} request_id={request_id or 'none'}")
-            return PlainTextResponse(content="Too many requests. Please try again in a moment.", status_code=429)
+            return True  # Limit exceeded
         
         # Add current timestamp
         timestamps.append(now)
+        return False  # Request allowed
         
-        # Manual test note:
-        # curl the same endpoint 11 times quickly should give 429 on the 11th for /assess
-        # Example: for i in {1..11}; do curl "http://localhost:8000/assess?course=Test&day=Today&time_of_day=Morning"; done
+    except Exception:
+        # Fail-open: allow request through on error
+        return False
+
+@app.middleware("http")
+async def rate_limit_middleware(request: StarletteRequest, call_next):
+    """
+    Rate limiting middleware. Applies to /assess (GET/POST) and /courses (GET) only.
+    Fail-open: allows requests through on any error.
+    """
+    try:
+        path = request.url.path
+        method = request.method
         
-        return None  # Request allowed
+        # Only apply rate limiting to specific routes
+        route_config = None
+        if path == "/assess" and method in ["GET", "POST"]:
+            route_config = ("assess", 10)  # 10 requests per 60 seconds
+        elif path == "/courses" and method == "GET":
+            route_config = ("courses", 20)  # 20 requests per 60 seconds
+        
+        # If route is not rate-limited, proceed normally
+        if not route_config:
+            return await call_next(request)
+        
+        route_key, max_requests = route_config
+        
+        # Get client IP (fail-open: returns "unknown" if cannot determine)
+        client_ip = get_client_ip(request)
+        
+        # Check rate limit
+        limit_exceeded = check_rate_limit_internal(client_ip, route_key, max_requests, window_seconds=60)
+        
+        if limit_exceeded:
+            # Get request_id from headers if available (some endpoints set this)
+            request_id = request.headers.get("X-Request-ID", "none")
+            
+            # Log warning with ip, path, method, and request_id
+            logger.warning(f"RATE_LIMIT_BLOCKED: ip={client_ip} path={path} method={method} request_id={request_id}")
+            
+            # Return 429 with plain text
+            return PlainTextResponse(content="Too many requests. Please try again in a moment.", status_code=429)
+        
+        # Request allowed, proceed
+        return await call_next(request)
         
     except Exception as e:
         # Fail-open: log error but allow request through
-        logger.error(f"Rate limiter error (allowing request): {str(e)}", exc_info=True)
-        return None  # Allow request to proceed
+        logger.error(f"Rate limiter middleware error (allowing request): {str(e)}", exc_info=True)
+        return await call_next(request)
 
 # Course attributes data structure for future logic and dynamic copy
 # Maps course name to attributes: area, typical_drainage, exposure, public_or_private, notes
@@ -5369,18 +5417,12 @@ async def generate_explanation(assessment_data) -> Tuple[str, str]:
 
 @app.get("/courses")
 async def get_courses(
-    request: StarletteRequest,
     q: str = Query(None, description="Search query for course names")
 ):
     """
     Search courses by name.
     Returns up to 8 matching courses, sorted by relevance.
     """
-    # Rate limiting: 20 requests per minute per IP
-    rate_limit_response = check_rate_limit(request, "courses", max_requests=20, window_seconds=60)
-    if rate_limit_response:
-        return rate_limit_response
-    
     # Validate query parameter
     if not q or len(q.strip()) < 2:
         return {"results": []}
@@ -7759,7 +7801,6 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
 
 @app.post("/assess", response_class=RedirectResponse)
 async def assess_post(
-    request: StarletteRequest,
     course: str = Form(...),
     handicap: int = Form(None),
     golf_experience: str = Form("Regular"),
@@ -7769,12 +7810,6 @@ async def assess_post(
     """
     Handle POST form submission and redirect to GET with query parameters.
     """
-    # Rate limiting: 10 requests per minute per IP
-    request_id = str(uuid4())
-    rate_limit_response = check_rate_limit(request, "assess", max_requests=10, window_seconds=60, request_id=request_id)
-    if rate_limit_response:
-        return rate_limit_response
-    
     # Build query parameters - only include handicap if provided
     params = {
         "course": course,
@@ -8019,7 +8054,6 @@ async def view_feedback(credentials: HTTPBasicCredentials = Depends(verify_feedb
 
 @app.get("/assess", response_class=HTMLResponse)
 async def assess_get(
-    request: StarletteRequest,
     course: str = Query(None),
     handicap: int = Query(None),
     golf_experience: str = Query("Regular"),
@@ -8030,13 +8064,8 @@ async def assess_get(
     Handle GET request for assessment results.
     LLM is always enabled if OPENAI_API_KEY is present (no query params needed).
     """
-    # Generate unique request ID for this request (needed for rate limiting logging)
+    # Generate unique request ID for this request
     request_id = str(uuid4())
-    
-    # Rate limiting: 10 requests per minute per IP
-    rate_limit_response = check_rate_limit(request, "assess", max_requests=10, window_seconds=60, request_id=request_id)
-    if rate_limit_response:
-        return rate_limit_response
     
     # Validate required parameters
     # Check if course is missing or blank (after stripping whitespace)
