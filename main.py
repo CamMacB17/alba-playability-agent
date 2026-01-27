@@ -5304,269 +5304,32 @@ async def generate_explanation(assessment_data) -> Tuple[str, str]:
         return deterministic_explanation, "Deterministic"
 
 
-@app.get("/debug/env")
-async def debug_env() -> Dict[str, Any]:
-    """
-    Debug endpoint to check environment variables.
-    Returns JSON with OpenAI API key status and LLM enabled status.
-    LLM is always enabled if OPENAI_API_KEY is present.
-    """
-    # LLM is always enabled if OPENAI_API_KEY exists
-    llm_enabled = bool(OPENAI_API_KEY) and bool(openai_client)
-    
-    return {
-        "has_openai_key": bool(OPENAI_API_KEY),
-        "llm_enabled": llm_enabled,
-        "openai_client_initialized": bool(openai_client)
-    }
-
-
-@app.get("/debug/version")
-async def debug_version() -> Dict[str, Any]:
-    """
-    Debug endpoint to check version information.
-    Returns JSON with git commit hash, build time, and Railway service name if available.
-    """
-    result = {
-        "git_commit": GIT_COMMIT,
-        "build_time_utc": BUILD_TIME_UTC
-    }
-    
-    # Include Railway service name if available
-    railway_service = os.getenv("RAILWAY_SERVICE_NAME")
-    if railway_service:
-        result["railway_service"] = railway_service
-    else:
-        result["railway_service"] = None
-    
-    return result
-
-
-@app.get("/debug/ui")
-async def debug_ui() -> Dict[str, Any]:
-    """
-    Temporary debug endpoint to check UI-related values.
-    Returns JSON with banner headline format, playability tiers, and verdict strings.
-    Extracts values from the same constants/variables used by the results page.
-    """
-    # Extract banner headline format - same logic as used in render_assessment_results
-    # In render_assessment_results, day parameter can be "Today" or "Tomorrow"
-    # Banner headline is generated as: f"{day}'s Golf Conditions"
-    # Extract the format pattern from the same logic
-    day_today = "Today"
-    day_tomorrow = "Tomorrow"
-    # Generate banner headlines using the same pattern as render_assessment_results
-    banner_headline_today = f"{day_today}'s Golf Conditions"
-    banner_headline_tomorrow = f"{day_tomorrow}'s Golf Conditions"
-    # Return the format pattern used (showing both possible values)
-    banner_headline_text = f"{day_today}'s Golf Conditions"  # Same format as used in results page
-    
-    # Extract playability tiers - use the tier values from get_playability_tier thresholds
-    # Tiers: Great (80-100), Decent (65-79), Challenging (45-64), Rough (0-44)
-    # Extract by testing the score thresholds
-    playability_tiers = []
-    
-    # Check if get_playability_tier function exists in scope
-    get_playability_tier_func = globals().get('get_playability_tier')
-    if get_playability_tier_func:
-        # Test each threshold to determine tier values
-        test_scores = [90, 70, 50, 20]  # Should map to Great, Decent, Challenging, Rough
-        for score in test_scores:
-            try:
-                tier = get_playability_tier_func(score)
-                if tier not in playability_tiers:
-                    playability_tiers.append(tier)
-            except Exception:
-                pass
-    else:
-        # Function doesn't exist yet, use tier values from score thresholds
-        playability_tiers = ["Great", "Decent", "Challenging", "Rough"]
-    
-    # Extract any remaining legacy verdict strings in code
-    # Should be empty after full removal, but checking for any stragglers
-    verdict_strings_in_code = []
-    
-    return {
-        "banner_headline_text": banner_headline_text,
-        "playability_tiers": playability_tiers,
-        "verdict_strings_in_code": verdict_strings_in_code
-    }
-
-
-@app.get("/debug/checklist")
-async def debug_checklist() -> Dict[str, Any]:
-    """
-    Debug endpoint to check feature implementation status.
-    Returns JSON with boolean checks for various features.
-    Checks actual code strings/variables used in rendering and routes.
-    """
-    # Check 1: Banner headline contains "Golf Conditions"
-    # Check the actual banner headline generation pattern used in render_assessment_results
-    # The banner headline is generated as: f"{day}'s Golf Conditions" where day is "Today" or "Tomorrow"
-    day_today = "Today"
-    banner_headline_pattern = f"{day_today}'s Golf Conditions"
-    has_conditions_headline = "Golf Conditions" in banner_headline_pattern
-    
-    # Check 2: Tier labels used in results banner
-    # Check if playability_tier values are actually used in banner rendering
-    tier_labels = ["Great", "Decent", "Challenging", "Rough"]
-    get_playability_tier_func = globals().get('get_playability_tier')
-    uses_playability_tiers = False
-    if get_playability_tier_func:
-        try:
-            # Test that function returns expected tier labels
-            test_tiers = [get_playability_tier_func(90), get_playability_tier_func(70), 
-                         get_playability_tier_func(50), get_playability_tier_func(20)]
-            uses_playability_tiers = all(tier in tier_labels for tier in test_tiers)
-            # Also check that tier_banner_class uses tier values
-            if uses_playability_tiers:
-                test_tier = "Challenging"
-                tier_banner_class = test_tier.lower()
-                uses_playability_tiers = tier_banner_class in ["great", "decent", "challenging", "rough"]
-        except Exception:
-            pass
-    
-    # Check 3: "If not, do this instead" section exists
-    # Check if what_section_title can be "What to do instead" based on actual code logic
-    has_instead_section = False
-    try:
-        # Simulate the actual logic from render_assessment_results
-        test_tier_challenging = "Challenging"
-        what_section_title_test = "What to expect" if test_tier_challenging in ["Great", "Decent"] else "What to do instead"
-        has_instead_section = what_section_title_test == "What to do instead"
-    except Exception:
-        pass
-    
-    # Check 4: Handicap optional (form allows blank AND /assess works without handicap)
-    # Check actual form HTML string and route validation by inspecting code
-    handicap_optional = False
-    try:
-        # Check form HTML: need to see if handicap input has 'required' attribute
-        # Check /assess route: need to see if it accepts None for handicap
-        # Read the actual form HTML generation code
-        form_html_check = 'id="handicap"'
-        # Check if required attribute is present (would make it False)
-        # Also check assess_get route validation logic
-        # From code: handicap field has 'required' attribute, route checks 'handicap is not None'
-        handicap_optional = False  # Currently required in both form and route
-    except Exception:
-        pass
-    
-    # Check 5: Handicap judgement strings removed from user-facing output
-    # Check if strings like "not suitable for your handicap" or "Not ideal today" appear in user-facing HTML
-    removes_handicap_judgement = True
-    try:
-        # Check normalize_suitability_label_for_display function
-        # It returns "Good for a {handicap} handicap" or "Tough for a {handicap} handicap today"
-        # Never returns "Not ideal" - this is normalized away
-        # Check if "Not ideal today" appears in user-facing contexts
-        # "Not ideal today" exists internally but normalize_suitability_label_for_display filters it out
-        # Check banner_summary generation - uses normalized labels
-        removes_handicap_judgement = True  # normalize_suitability_label_for_display removes "Not ideal"
-    except Exception:
-        pass
-    
-    # Check 6: Golf experience field exists (form contains Beginner/Regular/Confident and passes through to /assess)
-    # Check form HTML for golf_experience field and /assess route for golf_experience parameter
-    has_golf_experience_field = False
-    try:
-        # Check if golf_experience appears in form HTML generation
-        # Check if golf_experience parameter exists in assess_post or assess_get routes
-        # From code inspection: no golf_experience field found in form or routes
-        has_golf_experience_field = False
-    except Exception:
-        pass
-    
-    return {
-        "has_conditions_headline": has_conditions_headline,
-        "uses_playability_tiers": uses_playability_tiers,
-        "has_instead_section": has_instead_section,
-        "handicap_optional": handicap_optional,
-        "removes_handicap_judgement": removes_handicap_judgement,
-        "has_golf_experience_field": has_golf_experience_field
-    }
+# Debug endpoints removed - Phase 1 cleanup
+# All /debug/* routes have been removed for production
 
 
 @app.get("/courses")
 async def get_courses(
-    q: str = Query(None, description="Search query for course names"),
-    debug: str = Query(None, description="Set to 1 to include debug information")
+    q: str = Query(None, description="Search query for course names")
 ):
     """
     Search courses by name.
     Returns up to 8 matching courses, sorted by relevance.
-    When debug=1, includes debug information in response.
     """
-    debug_mode = debug == "1"
-    
-    # Collect debug information if debug mode is enabled
-    debug_info = {}
-    if debug_mode:
-        debug_info["q_received"] = q if q else None
-        debug_info["q_stripped"] = q.strip() if q else None
-        debug_info["q_len"] = len(q.strip()) if q else 0
-        debug_info["courses_path"] = str(COURSES_PATH)
-        debug_info["courses_path_fallback"] = str(COURSES_PATH_FALLBACK)
-        debug_info["file_exists"] = COURSES_PATH.exists()
-        debug_info["file_exists_fallback"] = COURSES_PATH_FALLBACK.exists()
-        
-        # Additional debug information
-        debug_info["app_cwd"] = str(Path.cwd())
-        
-        # Check /app directory
-        app_dir = Path("/app")
-        debug_info["app_dir_exists"] = app_dir.exists() and app_dir.is_dir()
-        
-        # Check /app/data directory
-        app_data_dir = Path("/app/data")
-        debug_info["data_dir_exists"] = app_data_dir.exists() and app_data_dir.is_dir()
-        
-        # List files in /app/data if it exists
-        if debug_info["data_dir_exists"]:
-            try:
-                data_files = [f.name for f in app_data_dir.iterdir() if f.is_file()]
-                debug_info["data_dir_listing"] = sorted(data_files)
-            except Exception:
-                debug_info["data_dir_listing"] = []
-        else:
-            debug_info["data_dir_listing"] = []
-        
-        # List first 30 files in /app if it exists
-        if debug_info["app_dir_exists"]:
-            try:
-                app_files = [f.name for f in app_dir.iterdir() if f.is_file()]
-                debug_info["repo_root_listing_sample"] = sorted(app_files)[:30]
-            except Exception:
-                debug_info["repo_root_listing_sample"] = []
-        else:
-            debug_info["repo_root_listing_sample"] = []
-    
     # Validate query parameter
     if not q or len(q.strip()) < 2:
-        if debug_mode:
-            debug_info["courses_loaded"] = 0
-            debug_info["first_5_courses"] = []
-            debug_info["matches_found"] = 0
-            return {"results": [], "debug": debug_info}
         return {"results": []}
     
     query = q.strip().lower()
     
     # Load courses from courses.json (tries root first, then data/ subdirectory)
-    courses = load_courses_from_data(debug_info if debug_mode else None)
+    courses = load_courses_from_data(None)
     courses_count = len(courses)
-    
-    if debug_mode:
-        debug_info["courses_loaded"] = courses_count
-        debug_info["first_5_courses"] = [course["name"] for course in courses[:5]]
     
     if not courses:
         # Determine which path was attempted
         attempted_path = COURSES_PATH if COURSES_PATH.exists() else COURSES_PATH_FALLBACK
         logger.info(f"/courses: q='{q}', path={attempted_path}, loaded=0, matches=0")
-        if debug_mode:
-            debug_info["matches_found"] = 0
-            return {"results": [], "debug": debug_info}
         return {"results": []}
     
     # Perform case-insensitive substring matching
@@ -5597,153 +5360,9 @@ async def get_courses(
     # Return only name and area fields
     results = [{"name": course["name"], "area": course["area"]} for course in top_matches]
     
-    if debug_mode:
-        debug_info["matches_found"] = matches_count
-        return {"results": results, "debug": debug_info}
-    
     return {"results": results}
 
 
-@app.get("/debug/openai")
-async def debug_openai() -> Dict[str, Any]:
-    """
-    Debug endpoint to check OpenAI setup.
-    Returns JSON with import status, version, client creation status, API key presence, and LLM effective status.
-    Must not crash even if imports fail.
-    """
-    result = {
-        "openai_import_ok": False,
-        "openai_version": "unknown",
-        "client_created": False,
-        "has_openai_key": bool(OPENAI_API_KEY),
-        "llm_effective": bool(openai_client)
-    }
-    
-    # Try to import openai
-    try:
-        import openai
-        result["openai_import_ok"] = True
-    except Exception:
-        result["openai_import_ok"] = False
-        return result
-    
-    # Try to get openai version
-    try:
-        import importlib.metadata
-        version = importlib.metadata.version("openai")
-        result["openai_version"] = version
-    except Exception:
-        try:
-            # Fallback to __version__ attribute
-            version = getattr(openai, "__version__", "unknown")
-            result["openai_version"] = version
-        except Exception:
-            result["openai_version"] = "unknown"
-    
-    # Try to instantiate client the same way the app does
-    try:
-        from openai import AsyncOpenAI
-        test_client = AsyncOpenAI(api_key=OPENAI_API_KEY if OPENAI_API_KEY else "test-key", timeout=10.0)
-        result["client_created"] = True
-    except Exception:
-        result["client_created"] = False
-    
-    return result
-
-
-@app.get("/debug/course")
-async def debug_course(name: str = Query(None, description="Course name to inspect")) -> Dict[str, Any]:
-    """
-    Debug endpoint to inspect a course object and derived values used in scoring.
-    Returns raw course data, override fields, final merged result, and scoring-relevant fields.
-    """
-    if not name:
-        return {"error": "name parameter required"}
-    
-    # Load raw courses (before overrides)
-    raw_courses = []
-    for courses_path in [COURSES_PATH, COURSES_PATH_FALLBACK]:
-        if courses_path.exists():
-            try:
-                with open(courses_path, "r", encoding="utf-8") as f:
-                    raw_courses = json.load(f)
-                if isinstance(raw_courses, list):
-                    break
-            except Exception:
-                pass
-    
-    # Find raw course data
-    raw_course_data = None
-    if isinstance(raw_courses, list):
-        for course in raw_courses:
-            if isinstance(course, dict) and course.get("name") == name:
-                raw_course_data = dict(course)
-                break
-    
-    # Load overrides
-    overrides = load_course_overrides()
-    override_data = overrides.get(name)
-    
-    # Find the merged course (after overrides)
-    course_data = find_course_by_name(name)
-    
-    if not course_data:
-        return {
-            "found": False,
-            "name": name,
-            "message": "Course not found"
-        }
-    
-    # Extract scoring-relevant fields with defaults
-    popularity_tier = course_data.get("popularity_tier", "Medium")
-    difficulty = course_data.get("difficulty", "Medium")
-    price_tier = course_data.get("price_tier", "££")
-    area = course_data.get("area", "")
-    
-    # Get course attributes if available
-    course_attributes = get_course_attributes(name)
-    
-    result = {
-        "found": True,
-        "base_course": raw_course_data,
-        "overrides_applied": override_data if override_data else None,
-        "merged_course": course_data,
-        "scoring_fields": {
-            "popularity_tier": {
-                "value": popularity_tier,
-                "default": "Medium",
-                "used_in": "calculate_course_pressure()",
-                "impact": "Base busyness score (Low=20, Medium=50, High=70)"
-            },
-            "difficulty": {
-                "value": difficulty,
-                "default": "Medium",
-                "used_in": "calculate_handicap_suitability_score(), compute_playability()",
-                "impact": "Base suitability score (Easy=80, Medium=60, Hard=40)"
-            },
-            "price_tier": {
-                "value": price_tier,
-                "default": "££",
-                "used_in": "compute_playability(), get_price_label()",
-                "impact": "Price factor score (informational only, 0% weight)"
-            },
-            "area": {
-                "value": area,
-                "default": "''",
-                "used_in": "Display/search only, not scoring",
-                "impact": "None (display only)"
-            }
-        },
-        "unused_fields": {
-            "beginner_friendly": {
-                "value": course_data.get("beginner_friendly"),
-                "status": "Present in JSON but not used in scoring logic"
-            }
-        },
-        "course_attributes": course_attributes if course_attributes else None
-    }
-    
-    return result
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -7274,45 +6893,8 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
         </details>
     """
     
-    # Debug info (only shown if debug_mode is True)
-    if debug_mode:
-        factor_scores = playability.get("factor_scores", {})
-        debug_info_html = f"""
-        <div class="debug-info" style="margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.05); border-radius: 8px; font-size: 12px; font-family: monospace;">
-            <strong>Copy Debug:</strong><br>
-            copy_source: {copy_debug.get('copy_source', 'unknown')}<br>
-            llm_attempted: {copy_debug.get('llm_attempted', False)}<br>
-            llm_error_type: {copy_debug.get('llm_error_type') if copy_debug.get('llm_error_type') is not None else 'null'}<br>
-            llm_error_message: {copy_debug.get('llm_error_message') if copy_debug.get('llm_error_message') is not None else 'null'}<br>
-            copy_builder_fn: {copy_debug.get('copy_builder_fn', 'unknown')}<br>
-            tier: {playability_tier}<br>
-            llm_effective: {llm_effective_enabled}<br>
-            {f'llm_parse_stage: {copy_debug.get("llm_parse_stage")}<br>' if copy_debug.get('llm_parse_stage') else ''}
-            {f'llm_duration_ms: {copy_debug.get("llm_duration_ms")}<br>' if copy_debug.get('llm_duration_ms') is not None else ''}
-            {f'llm_timeout_seconds: {copy_debug.get("llm_timeout_seconds")}<br>' if copy_debug.get('llm_timeout_seconds') is not None else ''}
-            {f'llm_model: {copy_debug.get("llm_model")}<br>' if copy_debug.get('llm_model') else ''}
-            {f'llm_missing_keys: {copy_debug.get("llm_missing_keys")}<br>' if copy_debug.get('llm_missing_keys') else ''}
-            {f'llm_raw_preview: {copy_debug.get("llm_raw_preview")}<br>' if copy_debug.get('llm_raw_preview') else ''}
-            <br>
-            <strong>Scoring Model Outputs:</strong><br>
-            Overall Score: {overall_score}/100<br>
-            Playability Tier: {playability_tier}<br>
-            Factor Scores:<br>
-            {chr(10).join([f"  {factor}: {score}/100" for factor, score in factor_scores.items()])}<br>
-            <br>
-            <strong>Raw Parameters:</strong><br>
-            Weather: {weather_rating}<br>
-            Ground: {ground_label}<br>
-            Busyness: {busyness_rating}<br>
-            {f'Suitability: {handicap_suitability}<br>' if handicap_suitability is not None else ''}
-            Price Tier: {price_tier_raw}<br>
-            Daylight: {daylight_label}<br>
-            {f'Handicap: {handicap}<br>' if handicap is not None else ''}
-            Recommended Holes: {recommended_holes}<br>
-        </div>
-        """
-    else:
-        debug_info_html = ""
+    # Debug info removed - Phase 1 cleanup
+    debug_info_html = ""
     
     return f"""
     <!DOCTYPE html>
@@ -8369,8 +7951,7 @@ async def assess_get(
     handicap: int = Query(None),
     golf_experience: str = Query("Regular"),
     day: str = Query(None),
-    time_of_day: str = Query(None),
-    debug: str = Query(None, description="Set to 1 to show debug information")
+    time_of_day: str = Query(None)
 ):
     """
     Handle GET request for assessment results.
@@ -8393,9 +7974,6 @@ async def assess_get(
     if golf_experience not in ["Beginner", "Regular", "Confident"]:
         golf_experience = "Regular"
     
-    # Parse debug parameter
-    debug_mode = debug == "1"
-    
     # Generate unique request ID for this request
     request_id = str(uuid4())
     
@@ -8410,7 +7988,7 @@ async def assess_get(
     # Render results with fail-open error handling
     # First attempt: try with LLM enabled (if available)
     try:
-        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode, force_templates=False)
+        return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=False)
     except Exception as e:
         # Check if this is a hard failure (course not found, weather API failure, invalid input)
         # These should show the error page
@@ -8498,7 +8076,7 @@ async def assess_get(
             logger.exception(f"ASSESS_FAIL_OPEN request_id={request_id} error={str(e)}")
             try:
                 # Retry with LLM forcibly disabled (templates only)
-                return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode, force_templates=True)
+                return await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=True)
             except Exception as retry_exception:
                 # If retry also fails, this is likely a hard failure - show error page
                 logger.error(f"Retry with templates also failed (request_id={request_id}): {str(retry_exception)}", exc_info=True)
