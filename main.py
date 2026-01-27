@@ -8048,6 +8048,34 @@ async def assess_get(
     # Log assessment start with debug info
     logger.info(f"ASSESS: request_id={request_id} llm_flag={llm_flag} has_key={has_openai_key} llm_effective={llm_effective}")
     
+    def get_user_friendly_error_message(exception: Exception) -> str:
+        """
+        Map known exceptions to user-friendly error messages.
+        Returns specific message for known failures, generic fallback otherwise.
+        Does not expose internal details, stack traces, API names, or request IDs.
+        """
+        error_str = str(exception).lower()
+        error_type = type(exception).__name__
+        
+        # Course not found
+        if "course not found" in error_str or "not found" in error_str and "course" in error_str:
+            return "We couldn't find that course. Check the spelling and try again."
+        
+        # Weather data unavailable
+        if ("weather" in error_str and ("api" in error_str or "fetch" in error_str or "unavailable" in error_str)) or \
+           ("httpx" in error_str and "weather" in error_str) or \
+           ("open-meteo" in error_str):
+            return "We couldn't get weather data right now. Please try again in a moment."
+        
+        # Invalid or incomplete input
+        if ("invalid" in error_str and ("date" in error_str or "time" in error_str or "input" in error_str)) or \
+           ("valueerror" == error_type.lower() and ("invalid" in error_str or "missing" in error_str)) or \
+           ("keyerror" == error_type.lower()):
+            return "Something didn't come through properly. Please go back and try again."
+        
+        # Generic fallback for anything unexpected
+        return "We couldn't check playability for that selection. Please try again."
+    
     # Render results with fail-open error handling
     # First attempt: try with LLM enabled (if available)
     try:
@@ -8068,6 +8096,7 @@ async def assess_get(
             logger.error(f"Hard failure rendering assessment results (request_id={request_id}): {str(e)}", exc_info=True)
             # Temporary detailed logging before error page render
             logger.error(f"ERROR_PAGE_RENDER: exception_type={type(e).__name__} exception_message={str(e)} request_id={request_id}", exc_info=True)
+            user_message = get_user_friendly_error_message(e)
             return f"""
         <!DOCTYPE html>
         <html>
@@ -8128,7 +8157,7 @@ async def assess_get(
         </head>
         <body>
             <div class="container">
-                <div class="error-message">We couldn't check playability for that selection. Try a different course or time.</div>
+                <div class="error-message">{user_message}</div>
                 <a href="/" class="back-link">← Back to home</a>
             </div>
         </body>
@@ -8145,6 +8174,7 @@ async def assess_get(
                 logger.error(f"Retry with templates also failed (request_id={request_id}): {str(retry_exception)}", exc_info=True)
                 # Temporary detailed logging before error page render
                 logger.error(f"ERROR_PAGE_RENDER: exception_type={type(retry_exception).__name__} exception_message={str(retry_exception)} request_id={request_id}", exc_info=True)
+                user_message = get_user_friendly_error_message(retry_exception)
                 return f"""
         <!DOCTYPE html>
         <html>
@@ -8205,7 +8235,7 @@ async def assess_get(
         </head>
         <body>
             <div class="container">
-                <div class="error-message">We couldn't check playability for that selection. Try a different course or time.</div>
+                <div class="error-message">{user_message}</div>
                 <a href="/" class="back-link">← Back to home</a>
             </div>
         </body>
