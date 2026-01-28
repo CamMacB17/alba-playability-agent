@@ -49,6 +49,9 @@ COURSE_OVERRIDES_PATH = BASE_DIR / "course_overrides.json"
 
 app = FastAPI()
 
+# Module-level cache for course overrides (loaded once, reused)
+_course_overrides_cache: Dict[str, Dict[str, Any]] | None = None
+
 # Rate limiting: in-memory storage per (ip, route_key)
 # Format: {(ip, route_key): deque([timestamp1, timestamp2, ...])}
 _rate_limit_store: Dict[Tuple[str, str], deque] = {}
@@ -669,7 +672,14 @@ def load_course_overrides() -> Dict[str, Dict[str, Any]]:
     Load course overrides from course_overrides.json.
     Returns dict mapping course name to override fields.
     Handles both dict format (current) and list format (legacy).
+    Uses module-level cache to avoid reloading on each request.
     """
+    global _course_overrides_cache
+    
+    # Return cached value if available
+    if _course_overrides_cache is not None:
+        return _course_overrides_cache
+    
     overrides = {}
     
     if COURSE_OVERRIDES_PATH.exists():
@@ -694,7 +704,32 @@ def load_course_overrides() -> Dict[str, Dict[str, Any]]:
         except (json.JSONDecodeError, IOError, OSError) as e:
             logger.warning(f"Failed to load course overrides from {COURSE_OVERRIDES_PATH}: {str(e)}")
     
+    # Cache the result
+    _course_overrides_cache = overrides
     return overrides
+
+
+def get_cop_profile(course_name: str) -> dict | None:
+    """
+    Get Course Operating Profile (COP) for a course from course_overrides.json.
+    Uses cached overrides dict (no file reads on each request).
+    
+    Args:
+        course_name: Name of the course to look up
+    
+    Returns:
+        Dict with COP fields (typical_drainage, exposure, public_or_private, winter_playability)
+        or None if no override exists for this course
+    """
+    if not course_name:
+        return None
+    
+    try:
+        course_overrides = load_course_overrides()
+        return course_overrides.get(course_name)
+    except Exception:
+        # Fail-open: if overrides can't be loaded, return None
+        return None
 
 
 def merge_course_overrides(courses: List[Dict[str, Any]], overrides: Dict[str, Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -2295,7 +2330,7 @@ def apply_course_operating_profile(factor_scores: dict, course_profile: dict | N
     return adjusted_scores
 
 
-def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier, course_data=None):
+def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier, course_data=None, request_id: str = None):
     """
     Compute playability using deterministic scoring model with explicit thresholds.
     Returns dict with:
@@ -2520,39 +2555,34 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     
     # Apply Course Operating Profile (COP) adjustments from course_overrides.json
     course_name = course_data.get("name") if course_data else None
-    course_profile = None
-    if course_name:
-        try:
-            course_overrides = load_course_overrides()
-            course_profile = course_overrides.get(course_name)
-        except Exception:
-            # Fail-open: if overrides can't be loaded, continue without COP
-            course_profile = None
+    course_profile = get_cop_profile(course_name) if course_name else None
     
     # Apply COP adjustments to factor_scores
     if course_profile:
         factor_scores = apply_course_operating_profile(factor_scores, course_profile)
-        # Log COP application
-        try:
-            log_with_context(
-                "info",
-                "COP_APPLIED",
-                context=None,
-                course=course_name,
-                typical_drainage=course_profile.get("typical_drainage", "unknown"),
-                exposure=course_profile.get("exposure", "unknown"),
-                public_or_private=course_profile.get("public_or_private", "unknown")
-            )
-        except Exception:
-            # Fail-open: logging errors don't block the request
-            pass
-    elif course_name:
-        # Log that COP is missing for this course
+        # Log COP application with request_id (only if available)
+        if request_id:
+            try:
+                log_with_context(
+                    "info",
+                    "COP_APPLIED",
+                    context={"request_id": request_id},
+                    course=course_name,
+                    typical_drainage=course_profile.get("typical_drainage", ""),
+                    exposure=course_profile.get("exposure", ""),
+                    public_or_private=course_profile.get("public_or_private", ""),
+                    winter_playability=course_profile.get("winter_playability", "")
+                )
+            except Exception:
+                # Fail-open: logging errors don't block the request
+                pass
+    elif course_name and request_id:
+        # Log that COP is missing for this course (only if request_id available)
         try:
             log_with_context(
                 "info",
                 "COP_MISSING",
-                context=None,
+                context={"request_id": request_id},
                 course=course_name
             )
         except Exception:
@@ -6370,7 +6400,7 @@ async def render_assessment_results(course: str, handicap: int = None, golf_expe
     # Compute playability using deterministic scoring model
     playability = compute_playability(
         weather_data, ground_info, busyness_info, course_difficulty,
-        daylight_label, handicap, recommended_holes, price_tier_raw, course_data
+        daylight_label, handicap, recommended_holes, price_tier_raw, course_data, request_id
     )
     
     # Extract weather info from playability results
@@ -8370,7 +8400,7 @@ async def assess_get(
     # First attempt: try with LLM enabled (if available)
     try:
         result = await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=False)
-        # Log assessment completed successfully
+        # Log assessment completed successfully (after result is ready)
         log_with_context("info", "ASSESS_COMPLETED", context=context)
         return result
     except Exception as e:
@@ -8477,7 +8507,7 @@ async def assess_get(
             try:
                 # Retry with LLM forcibly disabled (templates only)
                 result = await render_assessment_results(course, handicap, golf_experience, day, time_of_day, request_id, debug_mode=False, force_templates=True)
-                # Log successful retry
+                # Log successful retry (after result is ready)
                 log_with_context("info", "ASSESS_COMPLETED", context=context, retry=True)
                 return result
             except Exception as retry_exception:
