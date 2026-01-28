@@ -31,7 +31,7 @@ from fastapi import FastAPI, Form, Query, Request, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, JSONResponse
 from urllib.parse import urlencode
 import httpx
 from typing import Dict, Any, Tuple, List, Optional
@@ -219,6 +219,25 @@ async def rate_limit_middleware(request: StarletteRequest, call_next):
             logger.error(f"Rate limiter middleware error (allowing request): {str(e)}", exc_info=True)
         except Exception:
             pass
+        return await call_next(request)
+
+@app.middleware("http")
+async def add_version_headers(request: StarletteRequest, call_next):
+    """
+    Add version headers to every response.
+    Fail-safe: if anything errors, allow request through.
+    """
+    try:
+        response = await call_next(request)
+        try:
+            response.headers["X-Alba-Commit"] = COMMIT_SHA
+            response.headers["X-Alba-Build-Time-UTC"] = BUILD_TIME_UTC
+        except Exception:
+            # Fail-safe: if header setting fails, continue without headers
+            pass
+        return response
+    except Exception:
+        # Fail-safe: if middleware errors, allow request through
         return await call_next(request)
 
 # Course attributes data structure for future logic and dynamic copy
@@ -596,6 +615,9 @@ def get_git_commit() -> str:
 # Generate build time at startup
 BUILD_TIME_UTC = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 GIT_COMMIT = get_git_commit()
+
+# Read commit SHA from env (prefer RAILWAY_GIT_COMMIT_SHA, else GIT_COMMIT, else "unknown")
+COMMIT_SHA = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT") or "unknown"
 
 # OpenAI API key - always enabled if present
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -5613,6 +5635,16 @@ async def generate_explanation(assessment_data) -> Tuple[str, str]:
 # Debug endpoints removed - Phase 1 cleanup
 # All /debug/* routes have been removed for production
 
+@app.get("/version", response_class=JSONResponse)
+async def get_version():
+    """
+    Version endpoint for deploy verification.
+    Returns commit SHA and build time.
+    """
+    return {
+        "commit": COMMIT_SHA,
+        "build_time_utc": BUILD_TIME_UTC
+    }
 
 @app.get("/courses")
 async def get_courses(
