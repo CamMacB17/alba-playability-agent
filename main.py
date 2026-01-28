@@ -2555,6 +2555,21 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
     
     # Apply Course Operating Profile (COP) adjustments from course_overrides.json
     course_name = course_data.get("name") if course_data else None
+    if course_name:
+        # Log COP lookup attempt (always log when course_name exists)
+        try:
+            log_with_context(
+                "info",
+                "COP_LOOKUP",
+                context={"request_id": request_id} if request_id else None,
+                course_name=course_name,
+                request_id=request_id if request_id else "none",
+                has_request_id=bool(request_id)
+            )
+        except Exception:
+            # Fail-open: logging errors don't block the request
+            pass
+    
     course_profile = get_cop_profile(course_name) if course_name else None
     
     # Apply COP adjustments to factor_scores
@@ -2576,14 +2591,15 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
             except Exception:
                 # Fail-open: logging errors don't block the request
                 pass
-    elif course_name and request_id:
-        # Log that COP is missing for this course (only if request_id available)
+    elif course_name:
+        # Log that COP is missing for this course (always log when course_name exists but no profile)
         try:
             log_with_context(
                 "info",
                 "COP_MISSING",
-                context={"request_id": request_id},
-                course=course_name
+                context={"request_id": request_id} if request_id else None,
+                course=course_name,
+                request_id=request_id if request_id else "none"
             )
         except Exception:
             # Fail-open: logging errors don't block the request
