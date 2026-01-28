@@ -668,16 +668,23 @@ def load_course_overrides() -> Dict[str, Dict[str, Any]]:
     """
     Load course overrides from course_overrides.json.
     Returns dict mapping course name to override fields.
+    Handles both dict format (current) and list format (legacy).
     """
     overrides = {}
     
     if COURSE_OVERRIDES_PATH.exists():
         try:
             with open(COURSE_OVERRIDES_PATH, "r", encoding="utf-8") as f:
-                override_list = json.load(f)
+                override_data = json.load(f)
                 
-            if isinstance(override_list, list):
-                for override in override_list:
+            if isinstance(override_data, dict):
+                # Current format: dict with course names as keys
+                for course_name, override_fields in override_data.items():
+                    if isinstance(override_fields, dict):
+                        overrides[course_name] = override_fields
+            elif isinstance(override_data, list):
+                # Legacy format: list of dicts with "name" field
+                for override in override_data:
                     if isinstance(override, dict) and "name" in override:
                         course_name = override["name"]
                         # Store override fields (exclude name)
@@ -2237,6 +2244,57 @@ def personalize_recommendation(
     return recommendations
 
 
+def apply_course_operating_profile(factor_scores: dict, course_profile: dict | None) -> dict:
+    """
+    Apply Course Operating Profile (COP) adjustments to factor scores.
+    
+    Args:
+        factor_scores: Dict with keys like weather, ground, busyness, etc.
+        course_profile: Dict from course_overrides.json with optional keys:
+            typical_drainage: "poor" | "average" | "good"
+            exposure: "exposed" | "sheltered"
+            public_or_private: "public" | "private"
+    
+    Returns:
+        Updated factor_scores dict with adjustments applied and clamped to 0..100
+    """
+    if course_profile is None:
+        return factor_scores
+    
+    # Make a copy to avoid mutating the original
+    adjusted_scores = dict(factor_scores)
+    
+    # Apply drainage adjustment to ground score
+    typical_drainage = course_profile.get("typical_drainage")
+    if typical_drainage == "poor":
+        adjusted_scores["ground"] = adjusted_scores.get("ground", 0) - 20
+    elif typical_drainage == "average":
+        adjusted_scores["ground"] = adjusted_scores.get("ground", 0) - 10
+    elif typical_drainage == "good":
+        adjusted_scores["ground"] = adjusted_scores.get("ground", 0) + 5
+    
+    # Apply exposure adjustment to weather score
+    exposure = course_profile.get("exposure")
+    if exposure == "exposed":
+        adjusted_scores["weather"] = adjusted_scores.get("weather", 0) - 10
+    elif exposure == "sheltered":
+        adjusted_scores["weather"] = adjusted_scores.get("weather", 0) + 5
+    
+    # Apply public/private adjustment to busyness score
+    public_or_private = course_profile.get("public_or_private")
+    if public_or_private == "public":
+        adjusted_scores["busyness"] = adjusted_scores.get("busyness", 0) - 10
+    elif public_or_private == "private":
+        adjusted_scores["busyness"] = adjusted_scores.get("busyness", 0) + 5
+    
+    # Clamp all scores to 0..100
+    for key in adjusted_scores:
+        if isinstance(adjusted_scores[key], (int, float)):
+            adjusted_scores[key] = max(0, min(100, int(adjusted_scores[key])))
+    
+    return adjusted_scores
+
+
 def compute_playability(weather_data, ground_info, busyness_info, course_difficulty, daylight_label, handicap, recommended_holes, price_tier, course_data=None):
     """
     Compute playability using deterministic scoring model with explicit thresholds.
@@ -2459,6 +2517,47 @@ def compute_playability(weather_data, ground_info, busyness_info, course_difficu
         "threshold": difficulty_threshold,
         "impact": f"{course_difficulty} course difficulty affects shot selection and course management"
     })
+    
+    # Apply Course Operating Profile (COP) adjustments from course_overrides.json
+    course_name = course_data.get("name") if course_data else None
+    course_profile = None
+    if course_name:
+        try:
+            course_overrides = load_course_overrides()
+            course_profile = course_overrides.get(course_name)
+        except Exception:
+            # Fail-open: if overrides can't be loaded, continue without COP
+            course_profile = None
+    
+    # Apply COP adjustments to factor_scores
+    if course_profile:
+        factor_scores = apply_course_operating_profile(factor_scores, course_profile)
+        # Log COP application
+        try:
+            log_with_context(
+                "info",
+                "COP_APPLIED",
+                context=None,
+                course=course_name,
+                typical_drainage=course_profile.get("typical_drainage", "unknown"),
+                exposure=course_profile.get("exposure", "unknown"),
+                public_or_private=course_profile.get("public_or_private", "unknown")
+            )
+        except Exception:
+            # Fail-open: logging errors don't block the request
+            pass
+    elif course_name:
+        # Log that COP is missing for this course
+        try:
+            log_with_context(
+                "info",
+                "COP_MISSING",
+                context=None,
+                course=course_name
+            )
+        except Exception:
+            # Fail-open: logging errors don't block the request
+            pass
     
     # Calculate weighted overall score
     # REBALANCED WEIGHTS: Weather + Ground >= 70%, Course difficulty <= 20%, Handicap <= 10%
