@@ -1536,18 +1536,6 @@
     "notes": "SW19 Wimbledon Common. Heath/common-land golf with sandy base. WHS slopes published (low-to-mid 120s). Excellent winter drainage but exposed to wind."
   },
   {
-    "name": "Wimbledon Park Golf Club (CLOSED)",
-    "area": "SW",
-    "typical_drainage": "null",
-    "exposure": "null",
-    "public_or_private": "public",
-    "difficulty": "null",
-    "price_tier": "null",
-    "popularity_tier": "null",
-    "winter_playability": "null",
-    "notes": "SW19 Wimbledon Park. Course permanently closed and no longer playable. Attributes set to null due to closure."
-  },
-  {
     "name": "Woldingham Golf Club",
     "area": "SE",
     "typical_drainage": "good",
