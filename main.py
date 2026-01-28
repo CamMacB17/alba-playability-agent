@@ -40,6 +40,7 @@ from uuid import uuid4
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.info('BOOT_OK commit=' + os.getenv('RAILWAY_GIT_COMMIT_SHA', 'unknown'))
 
 # Base directory and paths
 BASE_DIR = Path(__file__).resolve().parent
