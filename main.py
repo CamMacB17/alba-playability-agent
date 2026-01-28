@@ -50,6 +50,14 @@ COURSE_OVERRIDES_PATH = BASE_DIR / "course_overrides.json"
 
 app = FastAPI()
 
+@app.middleware("http")
+async def add_version_headers(request: StarletteRequest, call_next):
+    """Add version/deployment headers to all responses."""
+    response = await call_next(request)
+    response.headers["X-Alba-Commit"] = os.getenv("RAILWAY_GIT_COMMIT_SHA", "unknown")
+    response.headers["X-Alba-Deploy"] = os.getenv("RAILWAY_DEPLOYMENT_ID", "unknown")
+    return response
+
 # Module-level cache for course overrides (loaded once, reused)
 _course_overrides_cache: Dict[str, Dict[str, Any]] | None = None
 
